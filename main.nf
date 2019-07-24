@@ -57,7 +57,7 @@ process extractControlSeq {
 	file "${inp.baseName}_controlSeq.fasta" into combineControlSeq_ch // ---> combineControlSeqs
 
 	"""
-	extract-control-v2.py --input ${inp} > ${inp.baseName}_controlSeq.fasta
+	extract-control-v3.py --input ${inp} > ${inp.baseName}_controlSeq.fasta
 	"""
 
 }

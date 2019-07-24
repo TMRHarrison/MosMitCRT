@@ -15,7 +15,6 @@ conda install -c bioconda prokka
 conda install -c bioconda meme
 ```
 
-
 ### Options:
 | Option  | Use                                    | Default                   |
 |:--------|:---------------------------------------|:--------------------------|
@@ -35,8 +34,4 @@ conda install -c bioconda meme
 		* Contains the MAST reports in html, json, and plaintext formats.
 
 ### To do:
-It needs it to be laid out such that the ileu-tRNA comes before the 12S-rRNA, there's no error checking for anything, basically. If these features don't occur in the proper order, the output will be huge, so it's pretty easy to tell when this has happened.
-
-Currently, if it doesn't find the tRNA for isoleucine, it will grab every base from 0 to the end, and also every base after the 12s rRNA. This means the "control region" will be larger than the entire genome. This isn't a *huge* problem, as it's pretty easy to tell when it's not working properly, but I should still get around to fixing it.
-
-I think something similar happens if it doesn't find the 12S rRNA, but I forget.
+Prokka doesn't analyze things as if they're circular, so if the sequence's 1 position is the middle of the 12S rRNA or the Ileu-tRNA, it won't recognise some or all of the feature.

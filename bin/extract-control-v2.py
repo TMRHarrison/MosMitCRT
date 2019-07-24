@@ -98,7 +98,7 @@ def main():
             clip_counter += len(words[0])
 
     for i in seqs:
-        print(">"+i+"cont_reg")
+        print(">"+i+"_cont_reg")
         print(seqs[i].clipped_after+seqs[i].clipped_before)
 
     seq_file.close()
