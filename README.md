@@ -35,3 +35,5 @@ conda install -c bioconda meme
 
 ### To do:
 Prokka doesn't analyze things as if they're circular, so if the sequence's 1 position is the middle of the 12S rRNA or the Ileu-tRNA, it won't recognise some or all of the feature.
+
+If the motifs don't have alternate names, it throws the annotation off completely.
