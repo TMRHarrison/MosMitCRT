@@ -16,11 +16,12 @@ conda install -c bioconda meme
 ```
 
 ### Options:
-| Option  | Use                                    | Default                   |
-|:--------|:---------------------------------------|:--------------------------|
-| --in    | Specify the input file in fasta format | You must specify an input |
-| --out   | Specify the ouput folder name          | pipe_out                  |
-| --motif | Specify the motif file to use          | ./data/motifs.txt         |
+| Option    | Use                                            | Default                                        |
+|:----------|:-----------------------------------------------|:-----------------------------------------------|
+| --in      | Specify the input file(s) in fasta format      | You must specify an input                      |
+| --motif   | Specify the motif file to use                  | You must specify a motif file or use --nomotif |
+| --out     | Specify the ouput folder name                  | pipe_out                                       |
+| --nomotif | Override --motif and skip searching for motifs | Searches for motifs from the --motif file      |
 
 ### Output files:
 * (named output)
@@ -29,11 +30,25 @@ conda install -c bioconda meme
 	* control-sequences
 		* individual
 			* Individual fasta files for each extracted control sequence.
-		* all_sequences.fasta contains all the control sequences in one fasta file.
+		* "all_sequences.fasta" contains all the control sequences in one fasta file.
 	* mast
 		* Contains the MAST reports in html, json, and plaintext formats.
+	* "annotations.gff" contains annotations (and only annotations) in GFF3 format for the control sequences.
+	* "annSeq.gff" contains annotations in GFF3 format, with a ##FASTA section containing all sequence data, as well.
+
+### Test commad
+This pipeline comes with some genomes from NCBI as test material, as well as some motifs to search for.
+
+#### Test commands:
+Normal usage:
+```
+nextflow run MosMitCRT --in "MosMitCRT/testData/mos*.fasta" --motif MosMitCRT/testData/motifs.txt
+```
+
+No motif search, check reverses and rotated sequence handling:
+```
+nextflow run MosMitCRT --in MosMitCRT/testData/testv3.fasta --nomotif
+```
 
 ### To do:
-Prokka doesn't analyze things as if they're circular, so if the sequence's 1 position is the middle of the 12S rRNA or the Ileu-tRNA, it won't recognise some or all of the feature.
-
-If the motifs don't have alternate names, it throws the annotation off completely.
+Prokka doesn't analyze things as if they're circular, so if the sequence's 1 position is the middle of the 12S rRNA or the Ileu-tRNA, it won't recognise some or all of the feature. This could potentially be mitigated by running multiple
