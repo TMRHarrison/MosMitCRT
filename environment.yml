@@ -1,0 +1,11 @@
+# You can use this file to create a conda environment for this pipeline:
+#   conda env create -f environment.yml
+name: MosMitCRT
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python=3.7
+  - prokka=1.14.0
+  - meme=5.0.5

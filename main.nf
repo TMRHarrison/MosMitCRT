@@ -28,16 +28,18 @@ def helpMessage() {
     """.stripIndent()
 }
 
+params.in = null
+params.out = "pipe_out"
+params.motif = null
+params.help = null
+params.nomotif = null
+
 // Show help emssage
 if (params.help){
     helpMessage()
     exit 0
 }
 
-params.in = null
-params.out = "pipe_out"
-params.motif = null
-params.help = false
 
 if (params.in == null) {
     log.info"You must specify an input FASTA file with \"--in <file>\"."
