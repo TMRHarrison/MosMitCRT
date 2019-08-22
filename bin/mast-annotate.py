@@ -98,8 +98,6 @@ def main():
 
     args = getParams()
 
-    mast_file = open(args.mast)
-
     seqs = {} # sequences
     mot = {}  # motifs
     tags = {} # XML tags to search within
@@ -108,7 +106,7 @@ def main():
     # MAST uses a "reverse compliment" tag, so no = + strand, yes = - strand
     strand = {
         "n": "+",
-        "y":"-"
+        "y": "-"
     }
 
     # construct patterns etc. for encasing tags
@@ -125,14 +123,16 @@ def main():
     motif_tag = re.compile(r'<motif .*>')
     hit_tag = re.compile(r'<hit .*>')
 
-    for i in mast_file:
-        line = i[:-1] # clip the newline off
 
-        # start/stop parsing sections
-        findTags(line,tags)
+    with open(args.mast) as mast_file:
+        for i in mast_file:
+            line = i[:-1] # clip the newline off
 
-        # Do the whatever on the sections
-        parseTags(line,tags)
+            # start/stop parsing sections
+            findTags(line,tags)
+
+            # Do the whatever on the sections
+            parseTags(line,tags)
 
 
     print("##gff-version 3")

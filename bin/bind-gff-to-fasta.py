@@ -21,23 +21,17 @@ def main():
 
     args = getParams()
 
-    gff_file = open(args.gff)
-
-    for i in gff_file:
-        line = i[:-1] # clip the newline off
-        print(line)
-
-    gff_file.close()
+    with open(args.gff) as gff_file:
+        for i in gff_file:
+            line = i[:-1] # clip the newline off
+            print(line)
 
     print("##FASTA")
 
-    fasta_file = open(args.fasta)
-
-    for i in fasta_file:
-        line = i[:-1]
-        print(line)
-
-    fasta_file.close()
+    with open(args.fasta) as fasta_file:
+        for i in fasta_file:
+            line = i[:-1]
+            print(line)
 
 # import-safety
 if __name__ == '__main__':

@@ -14,6 +14,7 @@ import sys
 if (sys.version_info[0] == 2):
     from string import maketrans
 
+# command line arguments, regular expressions
 import argparse
 import re
 
@@ -46,14 +47,22 @@ def checkFlip(cur_seq):
 # makes a translation dictionary in case of reverse compliments
 nt_all  = "AGCTURYSWKMBVDH" # everything else will get ignored -> '-' and 'N' get "complemented" to themselves
 nt_comp = "TCGAAYRSWMKVBHD"
-# actually complements reverses the sequence
-def reverseComp(seq):
-    # So, because some part the python community refuses to upgrade to Python3, here we go.
-    if (sys.version_info[0] == 3):
-        nt_comp_dict = seq.maketrans(nt_all+nt_all.lower(), nt_comp+nt_comp.lower())
-    else: #elif caveman:
-        nt_comp_dict = maketrans(nt_all+nt_all.lower(), nt_comp+nt_comp.lower())
 
+mktr = None
+# So, because some part the python community refuses to upgrade to Python3, here we go.
+# pick a function to use depending on python version
+if (sys.version_info[0] == 3):
+    mktr = str.maketrans
+else: #elif caveman:
+    mktr = maketrans
+# build the dictionary and store it
+nt_comp_dict = mktr(nt_all+nt_all.lower(), nt_comp+nt_comp.lower())
+
+# we can just pop these out since we don't need them any more and they're just polluting the namespace at this point
+del mktr, nt_all, nt_comp
+
+# Uses the library defined just above to get the other strand, then reverses the string
+def reverseComp(seq):
     return seq.translate(nt_comp_dict)[::-1]
 
 def main():
