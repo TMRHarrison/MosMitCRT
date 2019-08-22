@@ -11,7 +11,7 @@ import argparse
 def getParams():
     parser = argparse.ArgumentParser()
     parser.add_argument("--gff", help = "The gff file to be worked on.")
-    parser.add_argument("--fasta", help = "The sequence file to be worked on. Make sure it matches the annotation file.")
+    parser.add_argument("--fasta", help = "The FASTA sequence file to be worked on. Make sure it matches the annotation file.")
 
     return parser.parse_args()
 

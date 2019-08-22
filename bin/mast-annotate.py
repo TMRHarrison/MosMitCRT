@@ -28,7 +28,7 @@ import re
 
 def getParams():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mast", help = "The file to be worked on")
+    parser.add_argument("--mast", help = "The motif file to be worked on. These are usually either .xml or .txt")
 
     return parser.parse_args()
 
