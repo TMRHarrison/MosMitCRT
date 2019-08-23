@@ -96,10 +96,13 @@ process extractControlSeq {
     file inp from annotatedSeqs_ch // <--- performProkka
 
     output:
-    file "${inp.baseName}_controlSeq.fasta" into combineControlSeq_ch // ---> combineControlSeqs
+    file fasta into combineControlSeq_ch // ---> combineControlSeqs
+
+    script:
+    fasta = "${inp.baseName}_controlSeq.fasta"
 
     """
-    extract-control.py --input ${inp} > ${inp.baseName}_controlSeq.fasta
+    extract-control.py --input ${inp} > ${fasta}
     """
 
 }

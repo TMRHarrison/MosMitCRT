@@ -1,11 +1,5 @@
 #!/usr/bin/env python
 
-## Is it bad?
-## Yes
-
-## Does it do what I want it to?
-## Also yes
-
 import argparse
 
 def getParams():

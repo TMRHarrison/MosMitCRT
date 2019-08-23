@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-# TODO:
 #   Make the sequences print to files instead of being held in memory?
 #   Extend the system to clip any control region, given command line arguments for the annotation boundaries
 
@@ -14,8 +13,12 @@ import argparse
 import re
 
 def getParams():
+    """
+    Returns the command line arguments.
+    """
+
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", help = "The file to be worked on. GFF format with a ##FASTA section.")
+    parser.add_argument("--input", help="The file to be worked on. GFF format with a ##FASTA section.")
 
     return parser.parse_args()
 
@@ -29,27 +32,23 @@ class SeqInfo:
     inner_flag = False
     rev_comp = False
 
-# check if the features has been flipped from the expected orientation (5'-B---A-3' instead of 5'-A---B-3')
-def checkFlip(cur_seq):
-    ## safety for sequences when they're both found, and the END sequence is after
-    if (cur_seq.start_anno_5_prime != -1
-    and cur_seq.end_anno_5_prime != -1
-    and cur_seq.end_anno_5_prime < cur_seq.start_anno_5_prime):
-        cur_seq.inner_flag = (not cur_seq.inner_flag) # take from between instead of the tails
-        # it has to be a toggle instead of an assignment because of weirdnesss with rotated reverse complements.
+    def checkFlip(self):
+        """
+        toggles inner_flag if the features has been flipped from the expected orientation (5'-B---A-3' instead of 5'-A---B-3').
+        """
 
-# checks for new sequences in the file
-def checkForNewSequence(words, seqs):
-    # find the species name if you don't have one
-    if words[0] == "##sequence-region":
-        # Uses the sequence name as a reference so we don't have to loop
-        # through the whole set every time we encounter something
-        seqs[words[1]] = SeqInfo()
+        ## safety for sequences when they're both found, and the END sequence is after
+        if (self.start_anno_5_prime != -1
+                and self.end_anno_5_prime != -1
+                and self.end_anno_5_prime < self.start_anno_5_prime):
+            self.inner_flag = (not self.inner_flag) # take from between instead of the tails
+            # it has to be a toggle instead of an assignment because of weirdnesss with rotated reverse complements.
 
-def findAnnotations(words, seqs, bound_start_pattern, bound_end_pattern):
-    # find the indices to start and stop at
-    if words[0] in seqs:
-        cur_seq = seqs[words[0]]
+    def getBounds(self, words, bound_start_pattern, bound_end_pattern):
+        """
+        Grabs all the nt in the control sequence and puts them in clipped_before an clipped_after.
+        """
+
         # Sections of the gff format (to make this less opaque):
         # [0] sequence ID
         # [1] source (usually a program name)
@@ -62,20 +61,20 @@ def findAnnotations(words, seqs, bound_start_pattern, bound_end_pattern):
         # [8] attributes: other information
 
         ## only use the first tRNA-Ile
-        if (cur_seq.start_anno_5_prime < 0
-        and bound_start_pattern.search(words[8])):
-            cur_seq.start_anno_5_prime = int(words[3]) - 1
-            cur_seq.start_anno_3_prime = int(words[4])
-            checkFlip(cur_seq)
+        if (self.start_anno_5_prime < 0
+                and bound_start_pattern.search(words[8])):
+            self.start_anno_5_prime = int(words[3]) - 1
+            self.start_anno_3_prime = int(words[4])
+            self.checkFlip()
         if bound_end_pattern.search(words[8]):
-            cur_seq.end_anno_5_prime = int(words[3]) - 1
-            cur_seq.end_anno_3_prime = int(words[4])
+            self.end_anno_5_prime = int(words[3]) - 1
+            self.end_anno_3_prime = int(words[4])
             # operating under the assumption that the 12S rRNA is on the negative strand
             # so if it isn't, we assume that we're looking at the reverse complement of what we're normally looking at
             if words[6] == "+":
-                cur_seq.rev_comp = True
+                self.rev_comp = True
                 # we have to set inner flag to be "flipped" because of the orientation of the sequence.
-                cur_seq.inner_flag = True
+                self.inner_flag = True
 
                 # let me essplane:
                 #
@@ -97,79 +96,82 @@ def findAnnotations(words, seqs, bound_start_pattern, bound_end_pattern):
 
 
                 # Is this a kludgy hack born out of tech debt? Probably. Still works, tho
+            self.checkFlip()
 
-            checkFlip(cur_seq)
+    def parseSeq(self, words, current_base):
+        """
+        Clips the relevant sequence data from sequences
+        """
 
-def startParsingNewSeq(words):
-    # when you reach a different sequence, start processing it
-    if words[0][:1] == ">":
-        return 0,words[0][1:]
-    return None
+        # if the line doesn't start with >, and clipCounter >= 0
+        # then you start
+        if (current_base >= 0) and (words[0][:1] != ">"):
+            # if we're looking at the reverse complement, we need to flip the boundaries.
+            if self.rev_comp:
+                near_bound = self.end_anno_5_prime
+                far_bound = self.start_anno_3_prime
+            else:
+                near_bound = self.start_anno_5_prime
+                far_bound = self.end_anno_3_prime
 
-def parseCurrentSeq(words, seqs, clipping_seq, current_base):
-    # if the line doesn't start with >, and clipCounter >= 0
-    # then you start
-    if (current_base >= 0) and (words[0][:1] != ">"):
-        # if we're looking at the reverse complement, we need to flip the boundaries.
-        if seqs[clipping_seq].rev_comp:
-            near_bound = seqs[clipping_seq].end_anno_5_prime
-            far_bound = seqs[clipping_seq].start_anno_3_prime
-        else:
-            near_bound = seqs[clipping_seq].start_anno_5_prime
-            far_bound = seqs[clipping_seq].end_anno_3_prime
+            ## DEFAULT BEHAVIOUR:
+            #  take from before the tRNA and then after the rRNA
+            # clip from the start until whenever the tRNA begins
+            if not self.inner_flag:
+                self.clipped_before += words[0][
+                    :max(0, near_bound - current_base)]
 
-        ## DEFAULT BEHAVIOUR:
-        #  take from before the tRNA and then after the rRNA
-        # clip from the start until whenever the tRNA begins
-        if not seqs[clipping_seq].inner_flag:
-            seqs[clipping_seq].clipped_before += words[0][
-            :max(0,near_bound - current_base)]
+                # Clip after getting to the end of the rRNA
+                self.clipped_after += words[0][
+                    max(0, (far_bound - current_base)):]
 
-            # Clip after getting to the end of the rRNA
-            seqs[clipping_seq].clipped_after += words[0][
-            max(0,(far_bound - current_base)):]
+            ## MODIFIED BEHAVIOUR:
+            #  Take BETWEEN the rRNA and the tRNA.
+            # This is "backwards" because the expected far bound is nearer when this happens.
+            else:
+                self.clipped_after += words[0][
+                    max(0, (far_bound - current_base)):
+                    max(0, near_bound - current_base)]
 
-        ## MODIFIED BEHAVIOUR:
-        #  Take BETWEEN the rRNA and the tRNA.
-        # This is "backwards" because the expected far bound is nearer when this happens.
-        else:
-            seqs[clipping_seq].clipped_after += words[0][
-            max(0,(far_bound - current_base)):
-            max(0,near_bound - current_base)]
-
-        ## This always happens
-        # return the number of nt parsed so we can incrment the counter
-        return len(words[0])
-    # if we find nothing, just return 0.
-    return 0
+            ## This always happens
+            # return the number of nt parsed so we can incrment the counter
+            return len(words[0])
+        # if we find nothing, just return 0.
+        return 0
 
 # biopython can also do this, but I feel like it's easier to do it this way if I just need the one thing.
 # makes a translation dictionary in case of reverse compliments
-nt_all  = "AGCTURYSWKMBVDH" # everything else will get ignored -> '-' and 'N' get "complemented" to themselves
-nt_comp = "TCGAAYRSWMKVBHD"
+NT_ALL  = "AGCTURYKMBVDH" # everything else will get ignored -> '-', 'N', "S", "W" get "complemented" to themselves
+NT_COMP = "TCGAAYRMKVBHD"
 # build the dictionary and store it
-nt_comp_dict = str.maketrans(nt_all+nt_all.lower(), nt_comp+nt_comp.lower())
+NT_COMP_DICT = str.maketrans(NT_ALL+NT_ALL.lower(), NT_COMP+NT_COMP.lower())
 
 # we can just pop these out since we don't need them any more and they're just polluting the namespace at this point
-del nt_all, nt_comp
+del NT_ALL, NT_COMP
 
 # Uses the library defined just above to get the other strand, then reverses the string
 def reverseComp(seq):
-    return seq.translate(nt_comp_dict)[::-1]
+    """
+    Gives the reverse complement of a sequence input.
+    """
+    return seq.translate(NT_COMP_DICT)[::-1]
 
 def main():
-
+    """
+    Does the whole thing
+    I don't know what you want me to say
+    """
     args = getParams()
 
     # dictionary of sequences indexed by name
     seqs = {}
 
-    with open(args.input,'r') as seq_file:
+    with open(args.input, 'r') as seq_file:
 
         # The annotation you want the cut to START at
-        bound_start_pattern = re.compile("product=mtRNA-Ile\(...\)") ## escaped regex
+        bound_start_pattern = re.compile(r'product=mtRNA-Ile\(...\)') ## escaped regex
         # The annotation the cut ENDS at
-        bound_end_pattern = re.compile("product=12S ribosomal RNA")
+        bound_end_pattern = re.compile(r'product=12S ribosomal RNA')
 
         # current base position being parsed
         current_base = -1
@@ -181,16 +183,21 @@ def main():
             line = line[:-1] # clip the newline off
             words = line.split(None, 8) # split by whitespace
 
-            checkForNewSequence(words, seqs)
+            if words[0] == "##sequence-region":
+                # adds a new sequence to the list of sequences when it finds a sequence-region tag.
+                seqs[words[1]] = SeqInfo()
+                # Uses the sequence name as a reference so we don't have to loop
+                # through the whole set every time we encounter something
 
-            findAnnotations(words, seqs, bound_start_pattern, bound_end_pattern)
+            if words[0] in seqs:
+                seqs[words[0]].getBounds(words, bound_start_pattern, bound_end_pattern)
 
-            t = startParsingNewSeq(words)
-            if t:
-                current_base = t[0]
-                clipping_seq = t[1]
+            if words[0][:1] == ">":
+                current_base = 0
+                clipping_seq = words[0][1:]
 
-            current_base += parseCurrentSeq(words, seqs, clipping_seq, current_base)
+            if clipping_seq in seqs:
+                current_base += seqs[clipping_seq].parseSeq(words, current_base)
 
     for i in seqs:
         print(">"+i+"_cont_reg")
@@ -198,8 +205,6 @@ def main():
         if seqs[i].rev_comp:
             seq = reverseComp(seq)
         print(seq)
-
-    seq_file.close()
 
 # import-safety
 if __name__ == '__main__':
