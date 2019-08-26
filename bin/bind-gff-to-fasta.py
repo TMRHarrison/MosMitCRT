@@ -1,18 +1,32 @@
 #!/usr/bin/env python
 
+## Naming:
+# variable_names
+# functionNames
+# Classes
+
+"""
+bind-gff-to-fasta.py --gff [in].gff --fasta [in2].fasta > output.gff
+
+Takes a .gff file and a .fasta file and puts them together. Doesn't check if
+the .gff already has a ##FASTA section.
+"""
+
 import argparse
 
 def getParams():
+    """Gets the command line arguments"""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--gff", help = "The gff file to be worked on.")
-    parser.add_argument("--fasta", help = "The FASTA sequence file to be worked on. Make sure it matches the annotation file.")
+    parser.add_argument("--gff", help="The gff file to be worked on.")
+    parser.add_argument("--fasta", help="The FASTA sequence file to be worked on. Make sure it matches the annotation file.")
 
     return parser.parse_args()
 
-# this just prints all the contents of the .gff, then prints the ##FASTA tag, then all the fasta sequences.
-# it should probably go directly into a file instead of relying on standardoutput, but whatever, it works.
 def main():
-
+    """
+    this just prints all the contents of the .gff, then prints the ##FASTA tag, then all the fasta sequences.
+    it should probably go directly into a file instead of relying on standardoutput, but whatever, it works.
+    """
     args = getParams()
 
     with open(args.gff) as gff_file:

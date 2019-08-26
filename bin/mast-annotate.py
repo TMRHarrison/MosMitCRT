@@ -15,39 +15,57 @@
 # [sequence 1 name] MEME Suite  nucleotide_motif    [position]  [position + motif-length]   .   [strand]    .   ID=[ID];Name=[motifName]
 #
 
+## Naming:
+# variable_names
+# functionNames
+# Classes
+
+"""
+mast-annotate.py --mast [mast].xml > [output].gff
+
+Takes a MAST output .xml file and makes a gff annotation file out of it.
+"""
+
 
 import argparse
-import re
 from bs4 import BeautifulSoup
 
 
 def getParams():
+    """Gets command line arguments. Returns them."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mast", help = "The motif.xml file to be worked on.")
+    parser.add_argument("--mast", help="The motif.xml file to be worked on.")
 
     return parser.parse_args()
 
 class Seq: #sequence
+    """
+    Stores some information about the sequence: name and length.
+    """
+
     def __init__(self, n, l):
         self.name = n
         self.length = l
 
 
 class Mot: #motif
+    """
+    Stores motif data. name, altname if it has one, and the length of the motif
+    """
     def __init__(self, n, a, l):
         self.name = n
         self.altn = a
         self.length = l
 
 def main():
-
+    """He does it"""
     args = getParams()
 
     seqs = {} # sequences
     mot = {}  # motifs
     ann = {}  # annotations
 
-    # MAST uses a "reverse compliment" tag, so no = + strand, yes = - strand
+    # MAST uses a "reverse complement" tag, so no = + strand, yes = - strand
     strand = {
         "n": "+",
         "y": "-"
@@ -80,14 +98,14 @@ def main():
 
                 # from this, we construct the annotations.
                 ann[len(ann)] = (seq_tag["name"]+                                   # sequence name
-                    "\tMEME Suite"+                                                 # source
-                    "\tnucleotide_motif\t"+                                         # type
-                    str(int(hit_tag["pos"])+1)+"\t"+                                # start
-                    str(int(hit_tag["pos"])+cur_motif.length)+                      # end
-                    "\t."+                                                          # score
-                    "\t"+strand[hit_tag["rc"]]+                                     # strand
-                    "\t."+                                                              # frame
-                    "\tNote=p-value:"+hit_tag["pvalue"]+";Name="+cur_motif.altn+cur_motif.name)  # note & other
+                                 "\tMEME Suite"+                                                 # source
+                                 "\tnucleotide_motif\t"+                                         # type
+                                 str(int(hit_tag["pos"])+1)+"\t"+                                # start
+                                 str(int(hit_tag["pos"])+cur_motif.length)+                      # end
+                                 "\t."+                                                          # score
+                                 "\t"+strand[hit_tag["rc"]]+                                     # strand
+                                 "\t."+                                                          # frame
+                                 "\tNote=p-value:"+hit_tag["pvalue"]+";Name="+cur_motif.altn+cur_motif.name)  # note & other
 
     # This could be slightly shorter if
     print("##gff-version 3")

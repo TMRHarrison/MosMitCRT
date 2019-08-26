@@ -44,6 +44,10 @@ def getParams():
     return parser.parse_args()
 
 class SeqInfo:
+    """
+    Stores information about the sequences and where they get clipped, reverse comp, rotation, etc.
+    Also has some methods to deal with looking for the boundaries, finding the control region, etc.
+    """
     start_anno_5_prime = -1
     start_anno_3_prime = -1
     end_anno_5_prime = -1
@@ -218,7 +222,7 @@ def main():
             # if we're looking for new sequences
             if new_seqs:
                 # if the sequence name isn't indexed already, index it
-                if not (words[0] in seqs):
+                if not words[0] in seqs:
                     seqs[words[0]] = SeqInfo()
 
                 #try to find the boundaries of the control region on this sequence by looking for the boundary annotations
