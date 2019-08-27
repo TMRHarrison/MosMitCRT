@@ -30,7 +30,6 @@ install:
   # Make the actual environment
   - conda env create -q -f ../environment.yml
   - source activate MosMitCRT
-  - python setup.py install
 
 env:
   - NXF_VER='0.32.0' # Specify a minimum NF version that should be tested and work
