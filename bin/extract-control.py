@@ -24,16 +24,11 @@ The general process is as follows:
 #   Make the sequences print to files instead of being held in memory?
 #   Extend the system to clip any control region, given command line arguments for the annotation boundaries
 
-## Naming:
-# variable_names
-# functionNames
-# Classes
-
 # command line arguments, regular expressions
 import argparse
 import re
 
-def getParams():
+def get_params():
     """
     Returns the command line arguments.
     """
@@ -57,7 +52,7 @@ class SeqInfo:
     inner_flag = False
     rev_comp = False
 
-    def checkFlip(self):
+    def check_flip(self):
         """
         toggles inner_flag if the features has been flipped from the expected orientation (5'-B---A-3' instead of 5'-A---B-3').
         """
@@ -69,7 +64,7 @@ class SeqInfo:
             self.inner_flag = (not self.inner_flag) # take from between instead of the tails
             # it has to be a toggle instead of an assignment because of weirdnesss with rotated reverse complements.
 
-    def getBounds(self, words, bound_start_pattern, bound_end_pattern):
+    def get_bounds(self, words, bound_start_pattern, bound_end_pattern):
         """
         Grabs all the nt in the control sequence and puts them in clipped_before an clipped_after.
         """
@@ -90,7 +85,7 @@ class SeqInfo:
                 and bound_start_pattern.search(words[8])):
             self.start_anno_5_prime = int(words[3]) - 1
             self.start_anno_3_prime = int(words[4])
-            self.checkFlip()
+            self.check_flip()
         if bound_end_pattern.search(words[8]):
             self.end_anno_5_prime = int(words[3]) - 1
             self.end_anno_3_prime = int(words[4])
@@ -121,9 +116,9 @@ class SeqInfo:
 
 
                 # Is this a kludgy hack born out of tech debt? Probably. Still works, tho
-            self.checkFlip()
+            self.check_flip()
 
-    def parseSeq(self, words, current_base):
+    def parse_seq(self, words, current_base):
         """
         Clips the relevant sequence data from sequences
         """
@@ -175,18 +170,24 @@ NT_COMP_DICT = str.maketrans(NT_ALL+NT_ALL.lower(), NT_COMP+NT_COMP.lower())
 del NT_ALL, NT_COMP
 
 # Uses the library defined just above to get the other strand, then reverses the string
-def reverseComp(seq):
+def reverse_comp(seq):
     """
     returns the reverse complement string of a sequence string.
     """
     return seq.translate(NT_COMP_DICT)[::-1]
+
+def prepare_line(line):
+    """
+    clips the newline off and splits by tabs.
+    """
+    return line[:-1].split("\t")
 
 def main():
     """
     Does the whole thing
     I don't know what you want me to say
     """
-    args = getParams()
+    args = get_params()
 
     # dictionary of sequences indexed by name
     seqs = {}
@@ -204,46 +205,42 @@ def main():
         # name of the sequence being clipped
         clipping_seq = None
 
-        # just a flag so it stops trying to add new sequence to the data base after it's gone through all the annotations.
-        # We really don't need it to add anything when we're out of annotations
-        new_seqs = True
-
         for line in seq_file:
-            line = line[:-1] # clip the newline off
-            words = line.split("\t") # split by tab character
+            words = prepare_line(line)
 
             # stop trying to add new sequences when we get to the fasta section
             if words[0][:7] == "##FASTA":
-                new_seqs = False
+                break
             # skip all other ## lines
             if words[0][:2] == "##":
                 continue
 
             # if we're looking for new sequences
-            if new_seqs:
-                # if the sequence name isn't indexed already, index it
-                if not words[0] in seqs:
-                    seqs[words[0]] = SeqInfo()
+            # if the sequence name isn't indexed already, index it
+            if not words[0] in seqs:
+                seqs[words[0]] = SeqInfo()
 
-                #try to find the boundaries of the control region on this sequence by looking for the boundary annotations
-                seqs[words[0]].getBounds(words, bound_start_pattern, bound_end_pattern)
+            #try to find the boundaries of the control region on this sequence by looking for the boundary annotations
+            seqs[words[0]].get_bounds(words, bound_start_pattern, bound_end_pattern)
 
-            # if we're into the fasta section
-            else:
-                # New fasta sequence, start trimming the sequence for the control region
-                if words[0][:1] == ">":
-                    current_base = 0
-                    clipping_seq = words[0][1:]
+        # if we're into the fasta section, after hitting ##FASTA
+        for line in seq_file:
+            words = prepare_line(line)
 
-                # continue clipping the control region out.
-                if clipping_seq in seqs:
-                    current_base += seqs[clipping_seq].parseSeq(words, current_base)
+            # New fasta sequence, start trimming the sequence for the control region
+            if words[0][:1] == ">":
+                current_base = 0
+                clipping_seq = words[0][1:]
+
+            # continue clipping the control region out.
+            if clipping_seq in seqs:
+                current_base += seqs[clipping_seq].parse_seq(words, current_base)
 
     for i in seqs:
         print(">"+i+"_cont_reg")
         seq = seqs[i].clipped_after+seqs[i].clipped_before
         if seqs[i].rev_comp:
-            seq = reverseComp(seq)
+            seq = reverse_comp(seq)
         print(seq)
 
 # import-safety

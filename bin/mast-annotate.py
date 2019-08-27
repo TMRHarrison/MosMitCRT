@@ -15,11 +15,6 @@
 # [sequence 1 name] MEME Suite  nucleotide_motif    [position]  [position + motif-length]   .   [strand]    .   ID=[ID];Name=[motifName]
 #
 
-## Naming:
-# variable_names
-# functionNames
-# Classes
-
 """
 mast-annotate.py --mast [mast].xml > [output].gff
 
@@ -31,7 +26,7 @@ import argparse
 from bs4 import BeautifulSoup
 
 
-def getParams():
+def get_params():
     """Gets command line arguments. Returns them."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--mast", help="The motif.xml file to be worked on.")
@@ -59,7 +54,7 @@ class Mot: #motif
 
 def main():
     """He does it"""
-    args = getParams()
+    args = get_params()
 
     seqs = {} # sequences
     mot = {}  # motifs

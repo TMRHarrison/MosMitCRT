@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 
-## Naming:
-# variable_names
-# functionNames
-# Classes
-
 """
 bind-gff-to-fasta.py --gff [in].gff --fasta [in2].fasta > output.gff
 
@@ -14,7 +9,7 @@ the .gff already has a ##FASTA section.
 
 import argparse
 
-def getParams():
+def get_params():
     """Gets the command line arguments"""
     parser = argparse.ArgumentParser()
     parser.add_argument("--gff", help="The gff file to be worked on.")
@@ -27,7 +22,7 @@ def main():
     this just prints all the contents of the .gff, then prints the ##FASTA tag, then all the fasta sequences.
     it should probably go directly into a file instead of relying on standardoutput, but whatever, it works.
     """
-    args = getParams()
+    args = get_params()
 
     with open(args.gff) as gff_file:
         for i in gff_file:
