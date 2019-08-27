@@ -28,7 +28,7 @@ install:
   # Useful for debugging any issues with conda
   - conda info -a
   # Make the actual environment
-  - conda env create -q -n test -f environment.yml
+  - conda env create -q -f environment.yml
   - source activate MosMitCRT
   - python setup.py install
 
