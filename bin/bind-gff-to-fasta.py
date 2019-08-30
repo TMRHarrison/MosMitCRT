@@ -11,7 +11,11 @@ import argparse
 
 def get_params():
     """Gets the command line arguments"""
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="""
+        Takes a .gff file and a .fasta file and puts them together. Doesn't check if
+        the .gff already has a ##FASTA section. Output is done through standard
+        output.
+        """.strip())
     parser.add_argument("--gff", help="The gff file to be worked on.")
     parser.add_argument("--fasta", help="The FASTA sequence file to be worked on. Make sure it matches the annotation file.")
 
@@ -26,16 +30,13 @@ def main():
 
     with open(args.gff) as gff_file:
         for i in gff_file:
-            line = i[:-1] # clip the newline off
-            print(line)
+            print(i, end='')
 
     print("##FASTA")
 
     with open(args.fasta) as fasta_file:
         for i in fasta_file:
-            line = i[:-1]
-            print(line)
+            print(i, end='')
 
-# import-safety
 if __name__ == '__main__':
     main()

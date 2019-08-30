@@ -28,7 +28,10 @@ from bs4 import BeautifulSoup
 
 def get_params():
     """Gets command line arguments. Returns them."""
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="""
+        Takes a MAST output .xml file and makes a gff annotation file out of it.
+        """.strip())
+
     parser.add_argument("--mast", help="The motif.xml file to be worked on.")
 
     return parser.parse_args()
@@ -53,7 +56,7 @@ class Mot: #motif
         self.length = l
 
 def main():
-    """He does it"""
+    """Main CLI entry point for mast-annotate.py"""
     args = get_params()
 
     seqs = {} # sequences
@@ -109,6 +112,5 @@ def main():
     for i in ann:
         print(ann[i])
 
-# import-safety
 if __name__ == '__main__':
     main()
