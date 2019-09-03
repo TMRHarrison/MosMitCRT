@@ -1,12 +1,5 @@
 #!/usr/bin/env nextflow
 
-/* --in       file input(s)
- * --out      output folder name
- * --motif    notifs to scan for
- * --nomotif  skip motif search
- *
- */
-
 def helpMessage() {
     log.info"""
 
@@ -14,7 +7,7 @@ def helpMessage() {
 
     The typical command for running the pipeline is as follows:
 
-    nextflow run MosMitCRT --in data.fasta --out out_folder
+    nextflow run TMRHarrison/MosMitCRT --in data.fasta --out out_folder
 
     Mandatory arguments:
       --in                      Path to input fasta file(s).
@@ -63,26 +56,41 @@ if (!params.nomotif) {
     referenceMotifs_ch = Channel.empty()
 }
 
+// appends the sequence ID to the filename. Only takes the ID up until the first non-alphanumeric character that isn't '.', '_', or '-'.
+// This behaviour is to prevent illegal filenames.
+// The rest of the filename is maintained to ensure the output won't have any overlapping names.
+process giveFileNameFastaID {
+    input:
+    file inp from sequences_ch// <--- --in
+
+    output:
+    file "*_${inp}" into renamedSequences_ch // ---> performProkka
+
+    """
+    fastaID=\$(awk -F "[^a-zA-Z0-9\\._-]" '/^>/ {print \$2; exit}' ${inp})
+    cp $inp \${fastaID}_${inp}
+    """
+}
+
 // performs Prokka on the fasta files
 process performProkka {
     // Publish to folders by extension, not by sequence.
     publishDir "${params.out}/prokka-annotations",
         mode: 'copy',
-        saveAs: {fn ->
-            ext = fn[fn.lastIndexOf(".")+1..-1]
-            base = fn[fn.lastIndexOf("/")+1..(fn.lastIndexOf(".")-1)]
-            "${ext}/${base}.${ext}"
+        saveAs: {filename ->
+            fileOut = file(filename)
+            "${fileOut.getExtension()}/${fileOut.getName()}"
         }
 
     input:
-    file inp from sequences_ch // <--- --input
+    file inp from renamedSequences_ch // <--- giveFileNameFastaID
 
     output:
     file "**/*.gff" into annotatedSeqs_ch // ---> extractControlSeq
     file("**/*")
 
     """
-    prokka --outdir prokka-out --force --prefix ${inp.baseName} --cpus 1 --gcode 5 --kingdom mitochondria ${inp}
+    prokka --outdir prokka-out --force --prefix ${inp.baseName} --cpus ${task.cpus} --gcode 5 --kingdom mitochondria ${inp}
     """
 
 
@@ -115,17 +123,13 @@ process combineControlSeqs {
     file "*.fasta" from combineControlSeq_ch.collect() // <--- extractControlSeqs
 
     output:
-    file "all_sequences.fasta" into contSeqsCombined_ch // ---> split into (mast_ch -> findMotifs) and (annotateContReg_ch -> annotateMotifs)
+    file "all_sequences.fasta" into mast_ch, annotateContReg_ch // ---> split into (mast_ch -> findMotifs) and (annotateContReg_ch -> annotateMotifs)
 
     """
     cat *.fasta > all_sequences.fasta
     """
 
 }
-
-// when the control sequences file comes out, duplicate it
-contSeqsCombined_ch
-    .into {mast_ch; annotateContReg_ch}
 
 // Uses mast to find known motifs
 process findMotifs {
