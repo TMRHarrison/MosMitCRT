@@ -24,7 +24,7 @@ The general process is as follows:
 #   Make the sequences print to files instead of being held in memory?
 #   Extend the system to clip any control region, given command line arguments for the annotation boundaries
 
-# command line arguments, text wrap, regular expressions
+# command line arguments, regular expressions
 import argparse
 import re
 

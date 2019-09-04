@@ -1,7 +1,17 @@
 #!/usr/bin/env nextflow
 
+
+
 def helpMessage() {
-    log.info"""
+    c_reset = params.monochrome ? '' : "\033[0m";
+    c_dim = params.monochrome ? '' : "\033[2m";
+
+    log.info"\n"+"""
+    Mos${c_dim}quito
+    ${c_reset}Mit${c_dim}ochondrial
+    ${c_reset}C${c_dim}ontrol
+    ${c_reset}R${c_dim}egion
+    ${c_reset}T${c_dim}rimmer${c_reset}
 
     Usage:
 
@@ -16,8 +26,7 @@ def helpMessage() {
     Other options:
       --out                     Output folder name. Defaults to "pipe_out"
       --nomotif                 Overrides --motif and skips MAST and subsequent steps.
-
-
+      --prokkaOpts              Extra prokka options. Must be wrapped in quotes.
     """.stripIndent()
 }
 
@@ -26,9 +35,30 @@ params.out = "pipe_out"
 params.motif = null
 params.help = null
 params.nomotif = null
+params.prokkaOpts = ""
+params.monochrome = false
 
-// Show help emssage
-if (params.help){
+def summary = [:]
+if (workflow.revision)
+    summary['Pipeline Release'] = workflow.revision
+summary['Run Name']         = workflow.runName
+summary['Max Resources']    = "$params.max_memory memory, $params.max_cpus cpus, $params.max_time time per job"
+if (workflow.containerEngine)
+    summary['Container']    = "$workflow.containerEngine - $workflow.container"
+summary['FASTA input']      = params.in
+if (params.nomotif)
+    summary['Motif file']   = params.motif
+if (params.prokkaOpts)
+    summary['Prokka options:'] = params.prokkaOpts
+summary['Output dir']       = params.out
+summary['Launch dir']       = workflow.launchDir
+summary['Working dir']      = workflow.workDir
+summary['Script dir']       = workflow.projectDir
+summary['User']             = workflow.userName
+log.info summary.collect { k,v -> "${k.padRight(18)}: $v" }.join("\n")
+
+// Show help message
+if (params.help) {
     helpMessage()
     exit 0
 }
@@ -90,7 +120,7 @@ process performProkka {
     file("**/*")
 
     """
-    prokka --outdir prokka-out --force --prefix ${inp.baseName} --cpus ${task.cpus} --gcode 5 --kingdom mitochondria ${inp}
+    prokka --outdir prokka-out --force --prefix ${inp.baseName} --cpus ${task.cpus} --gcode 5 --kingdom mitochondria ${inp} ${params.prokkaOpts}
     """
 
 
@@ -167,3 +197,10 @@ process annotateMotifs {
     """
 
 }
+
+workflow.onComplete {
+    log.info "${workflow.runName} complete"
+    log.info "Pipeline completed at: $workflow.complete"
+    log.info "Execution status: ${ workflow.success ? "OK" : "failed" }" //"
+}
+
