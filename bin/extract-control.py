@@ -24,9 +24,15 @@ The general process is as follows:
 #   Make the sequences print to files instead of being held in memory?
 #   Extend the system to clip any control region, given command line arguments for the annotation boundaries
 
+"""
+You gotta make it find all the ile annotations and find the once closest to ND2's start position.
+
+
+"""
+
 # command line arguments, regular expressions
 import argparse
-import re
+from BCBio import GFF
 
 def get_params():
     """Returns the command line arguments."""
@@ -71,63 +77,45 @@ class SeqInfo:
             self.inner_flag = (not self.inner_flag) # take from between instead of the tails
             # it has to be a toggle instead of an assignment because of weirdnesss with rotated reverse complements.
 
-    def get_bounds(self, words, bound_start_pattern, bound_end_pattern):
-        """
-        Finds the patterns for the boundaries we're looking for in the gff data and
-        saves the start/end positions. It also checks if the end bound is reversed
-        from the expected orientation and marks the sequence as reversed if it is.
-        """
+    def set_start(self, annot):
+        """"""
+        self.start_anno_5_prime = annot.location.start
+        self.start_anno_3_prime = annot.location.end + 1
+        self.check_flip()
 
-        # Sections of the gff format (to make this less opaque):
-        # [0] sequence ID
-        # [1] source (usually a program name)
-        # [2] feature type
-        # [3] start of feature
-        # [4] end of feature
-        # [5] score (???)
-        # [6] + or - strand
-        # [7] phase (reading frame) relative to the start of the annotation
-        # [8] attributes: other information
+    def set_end(self, annot):
+        """"""
+        self.end_anno_5_prime = annot.location.start
+        self.end_anno_3_prime = annot.location.end + 1
+        # operating under the assumption that the 12S rRNA is on the negative strand
+        # so if it isn't, we assume that we're looking at the reverse complement of what we're normally looking at
+        if annot.location.strand == "+":
+            self.rev_comp = True
+            # we have to set inner flag to be "flipped" because of the orientation of the sequence.
+            self.inner_flag = True
 
-        ## only use the first tRNA-Ile
-        if (self.start_anno_5_prime < 0
-                and bound_start_pattern.search(words[8])):
-            self.start_anno_5_prime = int(words[3]) - 1
-            self.start_anno_3_prime = int(words[4])
-            self.check_flip()
-        if bound_end_pattern.search(words[8]):
-            self.end_anno_5_prime = int(words[3]) - 1
-            self.end_anno_3_prime = int(words[4])
-            # operating under the assumption that the 12S rRNA is on the negative strand
-            # so if it isn't, we assume that we're looking at the reverse complement of what we're normally looking at
-            if words[6] == "+":
-                self.rev_comp = True
-                # we have to set inner flag to be "flipped" because of the orientation of the sequence.
-                self.inner_flag = True
+            # let me essplane:
+            #
+            # Normal: 5'~tRNA------->12S>~~3'          | Reverse complement: 3'~~<12S<-------tRNA~5'
+            # the tRNA is before the rRNA, so we take  | The rRNA is before the tRNA, but we still have
+            # from the start, until the tRNA, then     | to take the outer. Because the rotation checker
+            # from the rRNA to the end.                | only checks for the position of the rRNA vs tRNA,
+            #                                          | it'll see the 12S before and decide that we need
+            #                                          | to take the centre, which is false. So we pre-set
+            #                                          | it to true to trick it into being correct by
+            #                                          | toggling itself back to getting the edges.
+            #------------------------------------------+--------------------------------------------------
+            # Rotated: 5'--->12S>~~~tRNA----3'         | Rotated RevComp: 3'----tRNA~~~<12S<---5'
+            # The 12S rRNA is before the tRNA, so we   | We want the centre, but since the 12S is after
+            # take the inner sequence, not the edges.  | the tRNA, the rotation checker will ignore it as
+            # The rotation checker will see the 12S    | correct, and take the edges unless we set it to
+            # before the tRNA and switch to taking the | true (which we did).
+            # middle instead of the edges.             |
 
-                # let me essplane:
-                #
-                # Normal: 5'~tRNA------->12S>~~3'          | Reverse complement: 3'~~<12S<-------tRNA~5'
-                # the tRNA is before the rRNA, so we take  | The rRNA is before the tRNA, but we still have
-                # from the start, until the tRNA, then     | to take the outer. Because the rotation checker
-                # from the rRNA to the end.                | only checks for the position of the rRNA vs tRNA,
-                #                                          | it'll see the 12S before and decide that we need
-                #                                          | to take the centre, which is false. So we pre-set
-                #                                          | it to true to trick it into being correct by
-                #                                          | toggling itself back to getting the edges.
-                #------------------------------------------+--------------------------------------------------
-                # Rotated: 5'--->12S>~~~tRNA----3'         | Rotated RevComp: 3'----tRNA~~~<12S<---5'
-                # The 12S rRNA is before the tRNA, so we   | We want the centre, but since the 12S is after
-                # take the inner sequence, not the edges.  | the tRNA, the rotation checker will ignore it as
-                # The rotation checker will see the 12S    | correct, and take the edges unless we set it to
-                # before the tRNA and switch to taking the | true (which we did).
-                # middle instead of the edges.             |
+            # Is this a kludgy hack born out of tech debt? Probably. Still works, tho
+        self.check_flip()
 
-
-                # Is this a kludgy hack born out of tech debt? Probably. Still works, tho
-            self.check_flip()
-
-    def parse_seq(self, words, current_base):
+    def parse_seq(self, line, current_base):
         """
         Clips the relevant sequence data from sequences.
 
@@ -158,41 +146,36 @@ class SeqInfo:
         "clipped_after", and increments the current base.
         """
 
-        # if the line doesn't start with >, and clipCounter >= 0
-        # then you start
-        if (current_base >= 0) and (words[0][:1] != ">"):
-            # if we're looking at the reverse complement, we need to flip the boundaries.
-            if self.rev_comp:
-                near_bound = self.end_anno_5_prime
-                far_bound = self.start_anno_3_prime
-            else:
-                near_bound = self.start_anno_5_prime
-                far_bound = self.end_anno_3_prime
+        # if we're looking at the reverse complement, we need to flip the boundaries.
+        if self.rev_comp:
+            near_bound = self.end_anno_5_prime
+            far_bound = self.start_anno_3_prime
+        else:
+            near_bound = self.start_anno_5_prime
+            far_bound = self.end_anno_3_prime
 
-            ## DEFAULT BEHAVIOUR:
-            #  take from before the tRNA and then after the rRNA
-            # clip from the start until whenever the tRNA begins
-            if not self.inner_flag:
-                self.clipped_before += words[0][
-                    :max(0, near_bound - current_base)]
+        ## DEFAULT BEHAVIOUR:
+        #  take from before the tRNA and then after the rRNA
+        # clip from the start until whenever the tRNA begins
+        if not self.inner_flag:
+            self.clipped_before += line[
+                :max(0, near_bound - current_base)]
 
-                # Clip after getting to the end of the rRNA
-                self.clipped_after += words[0][
-                    max(0, (far_bound - current_base)):]
+            # Clip after getting to the end of the rRNA
+            self.clipped_after += line[
+                max(0, far_bound - current_base):]
 
-            ## MODIFIED BEHAVIOUR:
-            #  Take BETWEEN the rRNA and the tRNA.
-            # This is "backwards" because the expected far bound is nearer when this happens.
-            else:
-                self.clipped_after += words[0][
-                    max(0, (far_bound - current_base)):
-                    max(0, near_bound - current_base)]
+        ## MODIFIED BEHAVIOUR:
+        #  Take BETWEEN the rRNA and the tRNA.
+        # This is "backwards" because the expected far bound is nearer when this happens.
+        else:
+            self.clipped_after += line[
+                max(0, far_bound - current_base):
+                max(0, near_bound - current_base)]
 
-            ## This always happens
-            # return the number of nt parsed so we can increment the counter
-            return len(words[0])
-        # if we find nothing, just return 0.
-        return 0
+        ## This always happens
+        # return the number of nt parsed so we can increment the counter
+        return len(line)
 
 # biopython can also do this, but I feel like it's easier to do it this way if I just need the one thing.
 # makes a translation dictionary in case of reverse compliments
@@ -218,11 +201,49 @@ def main():
     seqs = {}
 
     with open(args.input, 'r') as seq_file:
+        # highest to lowest priority, e.x. 12S is preferred to 12S (partial)
+        bound_start = ("mtRNA-Ile(gat)",)
 
-        # The annotation you want the cut to START at
-        bound_start_pattern = re.compile(r'product=mtRNA-Ile\(...\)') ## escaped regex
-        # The annotation the cut ENDS at
-        bound_end_pattern = re.compile(r'product=12S ribosomal RNA')
+        bound_end = ("12S ribosomal RNA", "12S ribosomal RNA (partial)")
+
+        #through every sequence record in the gff
+        for rec in GFF.parse(seq_file):
+
+            if not rec.id in seqs:
+                seqs[rec.id] = SeqInfo()
+
+            # through every possible start/end bound
+            for start in bound_start:
+                # through every feature in every record
+                for annot in rec.features:
+                    # if it's the correct bound,
+                    if annot.qualifiers["product"][0] == start:
+                        seqs[rec.id].set_start(annot)
+                        print(rec.id+"  "+start+" "+str(seqs[rec.id].start_anno_5_prime)+" "+str(seqs[rec.id].start_anno_3_prime))
+                        break # stop searching once we find a match for this -- we prioritize the start of the list
+
+            for end in bound_end:
+                for annot in rec.features:
+                    # if it's the correct bound,
+                    if annot.qualifiers["product"][0] == end:
+                        seqs[rec.id].set_end(annot)
+                        break # stop searching once we find a match for this -- we prioritize the start of the list
+
+        """
+
+
+
+        # get the boundaries or this annotation if needed
+        seqs[record.seqid].get_bounds(record, loc)
+        """
+
+    # have to re-open it to get at that J U I C Y fasta data
+    with open(args.input, 'r') as seq_file:
+
+        for line in seq_file:
+            # skip everything until ##FASTA.
+            if line[:7] == "##FASTA":
+                break
 
         # current base position being parsed
         current_base = -1
@@ -230,36 +251,17 @@ def main():
         # name of the sequence being clipped
         clipping_seq = None
 
-        for line in seq_file:
-            words = prepare_line(line)
-
-            # stop trying to add new sequences when we get to the fasta section
-            if words[0][:7] == "##FASTA":
-                break
-            # skip all other ## lines
-            if words[0][:2] == "##":
-                continue
-
-            # if we're looking for new sequences
-            # if the sequence name isn't indexed already, index it
-            if not words[0] in seqs:
-                seqs[words[0]] = SeqInfo()
-
-            #try to find the boundaries of the control region on this sequence by looking for the boundary annotations
-            seqs[words[0]].get_bounds(words, bound_start_pattern, bound_end_pattern)
-
         # if we're into the fasta section, after hitting ##FASTA
         for line in seq_file:
-            words = prepare_line(line)
+            line = line.strip()
 
             # New fasta sequence, start trimming the sequence for the control region
-            if words[0][:1] == ">":
+            if line[:1] == ">":
                 current_base = 0
-                clipping_seq = words[0][1:]
-
+                clipping_seq = line[1:]
             # continue clipping the control region out.
-            if clipping_seq in seqs:
-                current_base += seqs[clipping_seq].parse_seq(words, current_base)
+            elif clipping_seq in seqs:
+                current_base += seqs[clipping_seq].parse_seq(line, current_base)
 
     for i in seqs:
         print(">"+i+"_cont_reg")
