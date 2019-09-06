@@ -11,3 +11,4 @@ dependencies:
   - meme=5.0.5
   - beautifulsoup4=4.8.0
   - lxml=4.4.1
+  - bcbio-gff=0.6.6

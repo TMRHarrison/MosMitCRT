@@ -25,8 +25,7 @@ The general process is as follows:
 #   Extend the system to clip any control region, given command line arguments for the annotation boundaries
 
 """
-You gotta make it find all the ile annotations and find the once closest to ND2's start position.
-
+Add a way to disable circular distance
 
 """
 
@@ -54,42 +53,48 @@ class SeqInfo:
     Also has some methods to deal with looking for the boundaries, finding the control region, etc.
     """
 
-    # start annotation is annotation that should be on the near end of the final outputted control sequence.
-    # end is the same but for the far end.
-    start_anno_5_prime = -1
-    start_anno_3_prime = -1
-    end_anno_5_prime = -1
-    end_anno_3_prime = -1
-    clipped_before = ""
-    clipped_after = ""
-    inner_flag = False
-    rev_comp = False
+    def __init__(self, length):
+        """
+        Constructor for SeqInfo, takes a length, everything else is defaulted and found later.
+        """
+        self.seq_length = length
+        # start annotation is annotation that should be on the near end of the final outputted control sequence.
+        # end is the same but for the far end.
+        self.anno = {}
+        self.anno["start"] = {
+            "anch_dist": length, # start at maximum length so
+            "5_prime": -1,
+            "3_prime": -1,
+            "strand": None
+        }
+        self.anno["end"] = {
+            "anch_dist": length, # start at maximum length so
+            "5_prime": -1,
+            "3_prime": -1,
+            "strand": None
+        }
+        self.clipped_before = ""
+        self.clipped_after = ""
+        self.inner_flag = False
+        self.rev_comp = False
 
     def check_flip(self):
         """
         toggles inner_flag if the features has been flipped from the expected orientation (5'-B---A-3' instead of 5'-A---B-3').
         """
 
-        ## safety for sequences when they're both found, and the END sequence is after
-        if (self.start_anno_5_prime != -1
-                and self.end_anno_5_prime != -1
-                and self.end_anno_5_prime < self.start_anno_5_prime):
+        if self.anno["end"]["5_prime"] < self.anno["start"]["5_prime"]:
             self.inner_flag = (not self.inner_flag) # take from between instead of the tails
             # it has to be a toggle instead of an assignment because of weirdnesss with rotated reverse complements.
 
-    def set_start(self, annot):
-        """"""
-        self.start_anno_5_prime = annot.location.start
-        self.start_anno_3_prime = annot.location.end + 1
-        self.check_flip()
+    def check_revcomp(self):
+        """
+        Checks if the end annnotation has been flipped. if it has, set flags.
+        """
 
-    def set_end(self, annot):
-        """"""
-        self.end_anno_5_prime = annot.location.start
-        self.end_anno_3_prime = annot.location.end + 1
         # operating under the assumption that the 12S rRNA is on the negative strand
         # so if it isn't, we assume that we're looking at the reverse complement of what we're normally looking at
-        if annot.location.strand == "+":
+        if self.anno["end"]["strand"] == "+":
             self.rev_comp = True
             # we have to set inner flag to be "flipped" because of the orientation of the sequence.
             self.inner_flag = True
@@ -113,9 +118,36 @@ class SeqInfo:
             # middle instead of the edges.             |
 
             # Is this a kludgy hack born out of tech debt? Probably. Still works, tho
-        self.check_flip()
 
-    def parse_seq(self, line, current_base):
+    def check_anchor(self, anchor_loc, annot, side):
+        """
+        Checks if the new annotation would be closer or further from the anchor point
+        """
+        side_dict = self.anno[side]
+        # here's how this one goes:
+        # We pick two points on a circle and find the distance between them
+        # this is the absolute distance between the two points, i.e. the distance between the anchor and the bound
+        if (circular_distance(annot.location.start, anchor_loc, self.seq_length) < side_dict["anch_dist"]
+                or side_dict["anch_dist"] == -1):
+            return True
+
+    def set_anchor(self, anchor_loc, annot, side):
+        """
+        Sets the anchor point
+        """
+        side_dict = self.anno[side]
+        side_dict["anch_dist"] = circular_distance(annot.location.start, anchor_loc, self.seq_length)
+
+    def set_side(self, annot, side):
+        """
+        Sets the start/end points for one or the other boundary
+        """
+        side_dict = self.anno[side]
+        side_dict["5_prime"] = annot.location.start
+        side_dict["3_prime"] = annot.location.end + 1
+        side_dict["strnad"] = annot.location.strand
+
+    def parse_seq(self, rec):
         """
         Clips the relevant sequence data from sequences.
 
@@ -148,34 +180,28 @@ class SeqInfo:
 
         # if we're looking at the reverse complement, we need to flip the boundaries.
         if self.rev_comp:
-            near_bound = self.end_anno_5_prime
-            far_bound = self.start_anno_3_prime
+            near_bound = self.anno["end"]["5_prime"]
+            far_bound = self.anno["start"]["3_prime"]
         else:
-            near_bound = self.start_anno_5_prime
-            far_bound = self.end_anno_3_prime
+            near_bound = self.anno["start"]["5_prime"]
+            far_bound = self.anno["end"]["3_prime"]
 
         ## DEFAULT BEHAVIOUR:
         #  take from before the tRNA and then after the rRNA
         # clip from the start until whenever the tRNA begins
         if not self.inner_flag:
-            self.clipped_before += line[
-                :max(0, near_bound - current_base)]
+            self.clipped_before += rec.seq[:max(0, near_bound)]
 
             # Clip after getting to the end of the rRNA
-            self.clipped_after += line[
-                max(0, far_bound - current_base):]
+            self.clipped_after += rec.seq[max(0, far_bound):]
 
         ## MODIFIED BEHAVIOUR:
         #  Take BETWEEN the rRNA and the tRNA.
         # This is "backwards" because the expected far bound is nearer when this happens.
         else:
-            self.clipped_after += line[
-                max(0, far_bound - current_base):
-                max(0, near_bound - current_base)]
+            self.clipped_after += rec.seq[max(0, far_bound):max(0, near_bound)]
 
-        ## This always happens
-        # return the number of nt parsed so we can increment the counter
-        return len(line)
+        return (self.clipped_after+self.clipped_before)
 
 # biopython can also do this, but I feel like it's easier to do it this way if I just need the one thing.
 # makes a translation dictionary in case of reverse compliments
@@ -193,82 +219,85 @@ def prepare_line(line):
     """clips the newline off and splits by tabs."""
     return line.strip().split("\t")
 
+def circular_distance(a, b, l):
+    """
+    Finds the shortest distance between two points along the perimeter of a circle.
+    """
+    arc = abs(a - b) % l # the distance between these in one direction -- not necessarily the shortest distance
+    return min(l - arc, arc) # the arc and the complement of the arc, one of which will be shorter than the other.
+
+def find_bound(seq, rec, bound_tuple, anchor, side):
+    for bound in bound_tuple:
+         # through every feature in every record
+        for annot in rec.features:
+            # if it's the correct bound,
+            if annot.qualifiers["product"][0] == bound:
+                if anchor == -1:
+                    seq.set_side(annot, side)
+                    return True # stop searching once we find a match for this -- we prioritize the start of the list when there's no anchor
+                    # Also we have no way of knowing if it's correct when we have no anchor, so we just stop everything.
+                    # It's a shot in the dark anyway, so why not use the shot that takes the least
+                    # If it's the only one, this'll find it and there won't be any more anyway.
+                elif seq.check_anchor(anchor, annot, side):
+                    # if this is closer than the other ones found so far, change the start and the anchor distance
+                    seq.set_anchor(anchor, annot, side)
+                    seq.set_side(annot, side)
+                    # don't stop going through if there's an anchor, we need to find the shortest distance.
+
 def main():
     """Main CLI entry point for extract-control.py"""
     args = get_params()
 
     # dictionary of sequences indexed by name
-    seqs = {}
 
     with open(args.input, 'r') as seq_file:
         # highest to lowest priority, e.x. 12S is preferred to 12S (partial)
-        bound_start = ("mtRNA-Ile(gat)",)
-
+        bound_start = ("mtRNA-Ile(gat)","mtRNA-Ile(aat)")
         bound_end = ("12S ribosomal RNA", "12S ribosomal RNA (partial)")
+        # anchors are basically only for tRNAs as boundaries because tRNAs are easy to copy and move,
+        # and are sometime just totally mis-annotated when done automatically.
+        # So we use a protein coding gene, preferably large so it's harder to translocate, but generally just the closest.
+        # Then we find the closest tRNA to that gene and use that.
+        # IF NO ANCHOR IS GIVEN OR FOUND, it just uses the first occurence of the
+        bound_start_anchor = ("NADH-ubiquinone oxidoreductase chain 2",)
+        bound_end_anchor = ()
 
-        #through every sequence record in the gff
+        s_anchor_loc = -1
+        e_anchor_loc = -1
+
+        # this consumes the entire file stream, so we'll have to re-open it later.
+        # through every sequence record in the gff
         for rec in GFF.parse(seq_file):
 
-            if not rec.id in seqs:
-                seqs[rec.id] = SeqInfo()
+            seq = SeqInfo(len(rec.seq))
+
+            # go through everything to find the anchors
+            for annot in rec.features:
+                for s_anch in bound_start_anchor:
+                    if annot.qualifiers["product"][0] == s_anch:
+                        s_anchor_loc = annot.location.start
+                        break
+                for e_anch in bound_end_anchor:
+                    if annot.qualifiers["product"][0] == e_anch:
+                        e_anchor_loc = annot.location.start
+                        break
 
             # through every possible start/end bound
-            for start in bound_start:
-                # through every feature in every record
-                for annot in rec.features:
-                    # if it's the correct bound,
-                    if annot.qualifiers["product"][0] == start:
-                        seqs[rec.id].set_start(annot)
-                        print(rec.id+"  "+start+" "+str(seqs[rec.id].start_anno_5_prime)+" "+str(seqs[rec.id].start_anno_3_prime))
-                        break # stop searching once we find a match for this -- we prioritize the start of the list
+            find_bound(seq, rec, bound_start, s_anchor_loc, "start")
+            find_bound(seq, rec, bound_end, e_anchor_loc, "end")
 
-            for end in bound_end:
-                for annot in rec.features:
-                    # if it's the correct bound,
-                    if annot.qualifiers["product"][0] == end:
-                        seqs[rec.id].set_end(annot)
-                        break # stop searching once we find a match for this -- we prioritize the start of the list
+            # go through the sequence and extract the sequence
+            # check if it's reversed and/or flipped
+            seq.check_revcomp()
+            seq.check_flip()
 
-        """
+            out_seq = seq.parse_seq(rec)
+            if seq.rev_comp:
+                out_seq = reverse_comp(out_seq)
 
-
-
-        # get the boundaries or this annotation if needed
-        seqs[record.seqid].get_bounds(record, loc)
-        """
-
-    # have to re-open it to get at that J U I C Y fasta data
-    with open(args.input, 'r') as seq_file:
-
-        for line in seq_file:
-            # skip everything until ##FASTA.
-            if line[:7] == "##FASTA":
-                break
-
-        # current base position being parsed
-        current_base = -1
-
-        # name of the sequence being clipped
-        clipping_seq = None
-
-        # if we're into the fasta section, after hitting ##FASTA
-        for line in seq_file:
-            line = line.strip()
-
-            # New fasta sequence, start trimming the sequence for the control region
-            if line[:1] == ">":
-                current_base = 0
-                clipping_seq = line[1:]
-            # continue clipping the control region out.
-            elif clipping_seq in seqs:
-                current_base += seqs[clipping_seq].parse_seq(line, current_base)
-
-    for i in seqs:
-        print(">"+i+"_cont_reg")
-        seq = seqs[i].clipped_after+seqs[i].clipped_before
-        if seqs[i].rev_comp:
-            seq = reverse_comp(seq)
-        print(seq)
+            # print it out
+            print(">"+rec.id+"_cont_reg")
+            print(out_seq)
 
 if __name__ == '__main__':
     main()
