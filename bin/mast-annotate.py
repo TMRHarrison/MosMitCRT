@@ -25,6 +25,11 @@ Takes a MAST output .xml file and makes a gff annotation file out of it.
 import argparse
 from bs4 import BeautifulSoup
 
+from BCBio import GFF
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
+from Bio.SeqFeature import SeqFeature, FeatureLocation
+
 
 def get_params():
     """Gets command line arguments. Returns them."""
@@ -33,18 +38,9 @@ def get_params():
         """.strip())
 
     parser.add_argument("--mast", help="The motif.xml file to be worked on.")
+    parser.add_argument("--out", help="The output destination (usually a .gff)")
 
     return parser.parse_args()
-
-class Seq: #sequence
-    """
-    Stores some information about the sequence: name and length.
-    """
-
-    def __init__(self, n, l):
-        self.name = n
-        self.length = l
-
 
 class Mot: #motif
     """
@@ -59,16 +55,16 @@ def main():
     """Main CLI entry point for mast-annotate.py"""
     args = get_params()
 
-    seqs = {} # sequences
+    seqs = [] # sequences
     mot = {}  # motifs
-    ann = {}  # annotations
 
     # MAST uses a "reverse complement" tag, so no = + strand, yes = - strand
     strand = {
-        "n": "+",
-        "y": "-"
+        "n": -1,
+        "y": 1
     }
 
+    # crack the input file open and look at it 👀
     with open(args.mast) as mast_file:
         xml = BeautifulSoup(mast_file, 'lxml')
 
@@ -84,33 +80,35 @@ def main():
 
         # grab all the sequence tags and get their names and lengths.
         for seq_tag in xml.find_all("sequence"):
-            seqs[len(seqs)] = Seq(seq_tag["name"], int(seq_tag["length"]))
+            seqs.append(SeqRecord("A"*(int(seq_tag["length"])),seq_tag["name"]))
 
             # then, go through every hit under each sequence to find the actual motif locations.
             for hit_tag in seq_tag.find_all("hit"):
                 cur_motif = mot[int(hit_tag["idx"])]
 
-                # [sequence 1 name]      MEME Suite                    nucleotide_motif
-                # [position]            [position + motif-length]      .
-                # [strand]              .                              ID=[ID];Name=[motifName]
-
                 # from this, we construct the annotations.
-                ann[len(ann)] = (seq_tag["name"]+                                   # sequence name
-                                 "\tMEME Suite"+                                                 # source
-                                 "\tnucleotide_motif\t"+                                         # type
-                                 str(int(hit_tag["pos"])+1)+"\t"+                                # start
-                                 str(int(hit_tag["pos"])+cur_motif.length)+                      # end
-                                 "\t."+                                                          # score
-                                 "\t"+strand[hit_tag["rc"]]+                                     # strand
-                                 "\t."+                                                          # frame
-                                 "\tNote=p-value:"+hit_tag["pvalue"]+";Name="+cur_motif.altn+cur_motif.name)  # note & other
+                qualifiers = {
+                    "source": "MEME Suite",
+                    "Note": "p-value:"+hit_tag["pvalue"],
+                    "Name": cur_motif.altn+cur_motif.name
+                }
 
-    # This could be slightly shorter if
-    print("##gff-version 3")
-    for i in seqs:
-        print("##sequence-region "+seqs[i].name+" 1 "+str(seqs[i].length))
-    for i in ann:
-        print(ann[i])
+                # build the sequence feature object
+                seqs[len(seqs)-1].features.append(
+                    SeqFeature(
+                        FeatureLocation(
+                            int(hit_tag["pos"])-1, # MAST indexes at 1, biopython indexes at 0
+                            int(hit_tag["pos"])+cur_motif.length-1
+                        ),
+                        type="nucleotide_motif",
+                        strand=strand[hit_tag["rc"]],
+                        qualifiers=qualifiers
+                    )
+                )
+
+    # open the outfile and start writing the sequence list to the file
+    with open(args.out, "w") as out_file:
+        GFF.write(seqs, out_file)
 
 if __name__ == '__main__':
     main()
