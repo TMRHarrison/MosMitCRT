@@ -96,7 +96,7 @@ class SeqInfo:
         # operating under the assumption that the 12S rRNA is on the negative strand
         # so if it isn't, we assume that we're looking at the reverse complement of what we're normally looking at
         return ("end" in self.anno
-                and self.anno["end"].location.strand == "1")
+                and self.anno["end"].location.strand == 1)
 
     def check_anchor(self, anchor_loc, annot, side):
         """
@@ -158,10 +158,10 @@ class SeqInfo:
         # they just stay as the defaults.
         if self.rev_comp:
             if "end" in self.anno: near_bound = self.anno["end"].location.start
-            if "start" in self.anno: far_bound = (self.anno["start"].location.end + 1)
+            if "start" in self.anno: far_bound = self.anno["start"].location.end
         else:
             if "start" in self.anno: near_bound = self.anno["start"].location.start
-            if "end" in self.anno: far_bound = (self.anno["end"].location.end + 1)
+            if "end" in self.anno: far_bound = self.anno["end"].location.end
 
         ## DEFAULT BEHAVIOUR:
         # take from the 12S rRNA to the end, then from teh beginning to the
@@ -174,24 +174,12 @@ class SeqInfo:
         else:
             return rec.seq[far_bound:near_bound]
 
-# biopython can also do this, but I feel like it's easier to do it this way if I just need the one thing.
-# makes a translation dictionary in case of reverse compliments
-NT_ALL  = "AGCTURYKMBVDH" # everything else will get ignored -> '-', 'N', "S", "W" get "complemented" to themselves
-NT_COMP = "TCGAAYRMKVBHD"
-# build the dictionary and store it
-NT_COMP_DICT = str.maketrans(NT_ALL+NT_ALL.lower(), NT_COMP+NT_COMP.lower())
-
-# Uses the library defined just above to get the other strand, then reverses the string
-def reverse_comp(seq):
-    """returns the reverse complement string of a sequence string."""
-    return seq.translate(NT_COMP_DICT)[::-1]
-
 def circular_distance(a, b, l):
     """Finds the shortest distance between two points along the perimeter of a circle and returns it."""
     arc = abs(a - b) % l # the distance between these in one direction -- not necessarily the shortest distance
     return min(l - arc, arc) # the arc and the complement of the arc, one of which will be shorter than the other.
 
-def find_bound(seq, all_annots, bound_tuple, anchor, side):
+def find_bound(seq, all_annots, bound_tuple, side, anchor=-1):
     """
     Takes a SeqInfo object, a list of annotations, a tuple containing all the bounds we're looking for,the anchor location
     for that feature, and a side ("start"/"end"), and sets the sequence's start or end annotation for later cutting
@@ -225,6 +213,9 @@ def find_annots(annot, bound_tuple, out_list):
             out_list.append(annot)
 
 def find_anchor(bound_start_anchor, start_anchor_annots):
+    """
+    Finds the first available anchor gene and returns its position
+    """
     for s_anch in bound_start_anchor:
         for annot in start_anchor_annots:
             if annot.qualifiers["product"][0] == s_anch:
@@ -245,9 +236,6 @@ def main():
         # Then we find the closest tRNA to that gene and use that.
         # IF NO ANCHOR IS GIVEN OR FOUND, it just uses the first occurence of the highest priority bound marker
         bound_start_anchor = ("NADH-ubiquinone oxidoreductase chain 2",)
-
-        s_anchor_loc = -1
-        e_anchor_loc = -1
 
         # this consumes the entire file stream, so we'll have to re-open it later.
         # through every sequence record in the gff
@@ -275,8 +263,8 @@ def main():
                         s_anchor_loc = annot.location.start
 
             # through every possible start/end bound
-            find_bound(seq, start_annots, bound_start, s_anchor_loc, "start")
-            find_bound(seq, end_annots, bound_end, e_anchor_loc, "end")
+            find_bound(seq, start_annots, bound_start, "start", s_anchor_loc)
+            find_bound(seq, end_annots, bound_end, "end")
 
             # go through the sequence and extract the sequence
             # check if it's reversed and/or flipped
@@ -311,7 +299,7 @@ def main():
             out_seq = seq.parse_seq(rec)
             # if it's supposed to get reversed, reverse it.
             if seq.get_rev_comp():
-                out_seq = reverse_comp(out_seq)
+                out_seq = out_seq.reverse_complement()
 
             # print it out
             print(">"+rec.id+"_cont_reg")

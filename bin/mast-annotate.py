@@ -56,7 +56,7 @@ def main():
     args = get_params()
 
     seqs = [] # sequences
-    mot = {}  # motifs
+    mot = []  # motifs
 
     # MAST uses a "reverse complement" tag, so no = + strand, yes = - strand
     strand = {
@@ -76,7 +76,7 @@ def main():
                 alt_name = mot_tag["alt"]+" "
 
             # make a new object in the table
-            mot[len(mot)] = Mot(mot_tag["id"], alt_name, int(mot_tag["length"]))
+            mot.append(Mot(mot_tag["id"], alt_name, int(mot_tag["length"])))
 
         # grab all the sequence tags and get their names and lengths.
         for seq_tag in xml.find_all("sequence"):
