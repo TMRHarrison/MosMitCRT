@@ -60,8 +60,8 @@ def main():
 
     # MAST uses a "reverse complement" tag, so no = + strand, yes = - strand
     strand = {
-        "n": -1,
-        "y": 1
+        "n": 1,
+        "y": -1
     }
 
     # crack the input file open and look at it 👀

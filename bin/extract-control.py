@@ -49,103 +49,73 @@ def get_params():
 
 class SeqInfo:
     """
-    Stores information about the sequences and where they get clipped, reverse comp, rotation, etc.
+    Stores the sequence record object and its annotations that are currently being used as boundaries.
     Also has some methods to deal with looking for the boundaries, finding the control region, etc.
     """
 
-    def __init__(self, length):
+    def __init__(self, rec):
         """
-        Constructor for SeqInfo, takes a length, everything else is defaulted and found later.
+        Constructor for SeqInfo, takes a biopython sequence record and finds everything else later.
         """
-        self.seq_length = length
+        self.record = rec
         # start annotation is annotation that should be on the near end of the final outputted control sequence.
         # end is the same but for the far end.
         self.anno = {}
-        self.anno["start"] = {
-            "anch_dist": length, # start at maximum length so
-            "5_prime": -1,
-            "3_prime": -1,
-            "strand": None
-        }
-        self.anno["end"] = {
-            "anch_dist": length, # start at maximum length so
-            "5_prime": -1,
-            "3_prime": -1,
-            "strand": None
-        }
-        self.clipped_before = ""
-        self.clipped_after = ""
+        # Just as notation; these don't get initialized.
+        #self.anno["start"]
+        #self.anno["end"]
         self.inner_flag = False
         self.rev_comp = False
 
+    def set_rev_comp(self, boole):
+        self.rev_comp = boole
+
+    def get_rev_comp(self):
+        return self.rev_comp
+
+    def set_inner_flag(self, boole):
+        self.inner_flag = boole
+
+    def toggle_inner_flag(self):
+        self.inner_flag = not self.inner_flag
+
     def check_flip(self):
         """
-        toggles inner_flag if the features has been flipped from the expected orientation (5'-B---A-3' instead of 5'-A---B-3').
+        checks if the features has been flipped from the expected orientation (5'-B---A-3' instead of 5'-A---B-3').
+        returns T/F
         """
-
-        if self.anno["end"]["5_prime"] < self.anno["start"]["5_prime"]:
-            self.inner_flag = (not self.inner_flag) # take from between instead of the tails
-            # it has to be a toggle instead of an assignment because of weirdnesss with rotated reverse complements.
+        return ("end" in self.anno
+                and "start" in self.anno
+                and self.anno["end"].location.start < self.anno["start"].location.start)
 
     def check_revcomp(self):
         """
-        Checks if the end annnotation has been flipped. if it has, set flags.
+        Checks if the end annnotation has been flipped.
+        Returns T/F
         """
-
         # operating under the assumption that the 12S rRNA is on the negative strand
         # so if it isn't, we assume that we're looking at the reverse complement of what we're normally looking at
-        if self.anno["end"]["strand"] == "+":
-            self.rev_comp = True
-            # we have to set inner flag to be "flipped" because of the orientation of the sequence.
-            self.inner_flag = True
-
-            # let me essplane:
-            #
-            # Normal: 5'~tRNA------->12S>~~3'          | Reverse complement: 3'~~<12S<-------tRNA~5'
-            # the tRNA is before the rRNA, so we take  | The rRNA is before the tRNA, but we still have
-            # from the start, until the tRNA, then     | to take the outer. Because the rotation checker
-            # from the rRNA to the end.                | only checks for the position of the rRNA vs tRNA,
-            #                                          | it'll see the 12S before and decide that we need
-            #                                          | to take the centre, which is false. So we pre-set
-            #                                          | it to true to trick it into being correct by
-            #                                          | toggling itself back to getting the edges.
-            #------------------------------------------+--------------------------------------------------
-            # Rotated: 5'--->12S>~~~tRNA----3'         | Rotated RevComp: 3'----tRNA~~~<12S<---5'
-            # The 12S rRNA is before the tRNA, so we   | We want the centre, but since the 12S is after
-            # take the inner sequence, not the edges.  | the tRNA, the rotation checker will ignore it as
-            # The rotation checker will see the 12S    | correct, and take the edges unless we set it to
-            # before the tRNA and switch to taking the | true (which we did).
-            # middle instead of the edges.             |
-
-            # Is this a kludgy hack born out of tech debt? Probably. Still works, tho
+        return ("end" in self.anno
+                and self.anno["end"].location.strand == "1")
 
     def check_anchor(self, anchor_loc, annot, side):
         """
         Checks if the new annotation would be closer or further from the anchor point
+        Returns T/F
         """
-        side_dict = self.anno[side]
         # here's how this one goes:
         # We pick two points on a circle and find the distance between them
         # this is the absolute distance between the two points, i.e. the distance between the anchor and the bound
-        if (circular_distance(annot.location.start, anchor_loc, self.seq_length) < side_dict["anch_dist"]
-                or side_dict["anch_dist"] == -1):
-            return True
-
-    def set_anchor(self, anchor_loc, annot, side):
-        """
-        Sets the anchor point
-        """
-        side_dict = self.anno[side]
-        side_dict["anch_dist"] = circular_distance(annot.location.start, anchor_loc, self.seq_length)
+        # then we see if the new one is closer than the old one.
+        # This automatically succeeds if there's no current annotation for the side
+        return ((not side in self.anno)
+                or (circular_distance(annot.location.start, anchor_loc, len(self.record.seq))
+                    < circular_distance(self.anno[side].location.start, anchor_loc, len(self.record.seq))
+                ))
 
     def set_side(self, annot, side):
-        """
-        Sets the start/end points for one or the other boundary
-        """
-        side_dict = self.anno[side]
-        side_dict["5_prime"] = annot.location.start
-        side_dict["3_prime"] = annot.location.end + 1
-        side_dict["strnad"] = annot.location.strand
+        """Sets the boundary annotation for a given side"""
+        self.anno[side] = annot
 
     def parse_seq(self, rec):
         """
@@ -174,34 +144,35 @@ class SeqInfo:
         the start of the "end." In this case, it's double reversed so the annotation names
         actually bodge their way to being correct.
 
-        Every time this iterates through, it adds nucleotides to "clipped_before" and/or
-        "clipped_after", and increments the current base.
+        Returns a string.
         """
 
         # if we're looking at the reverse complement, we need to flip the boundaries.
+        # defaults
+        # The "near" bound is closer to the 5' end
+        near_bound = 0
+        # It's the "far" bound because it's further from the 5' end.
+        far_bound = len(self.record.seq)
+
+        # Set the variables to their correct value, assuming the boundaries were found, otherwise
+        # they just stay as the defaults.
         if self.rev_comp:
-            near_bound = self.anno["end"]["5_prime"]
-            far_bound = self.anno["start"]["3_prime"]
+            if "end" in self.anno: near_bound = self.anno["end"].location.start
+            if "start" in self.anno: far_bound = (self.anno["start"].location.end + 1)
         else:
-            near_bound = self.anno["start"]["5_prime"]
-            far_bound = self.anno["end"]["3_prime"]
+            if "start" in self.anno: near_bound = self.anno["start"].location.start
+            if "end" in self.anno: far_bound = (self.anno["end"].location.end + 1)
 
         ## DEFAULT BEHAVIOUR:
-        #  take from before the tRNA and then after the rRNA
-        # clip from the start until whenever the tRNA begins
+        # take from the 12S rRNA to the end, then from teh beginning to the
         if not self.inner_flag:
-            self.clipped_before += rec.seq[:max(0, near_bound)]
-
-            # Clip after getting to the end of the rRNA
-            self.clipped_after += rec.seq[max(0, far_bound):]
+            return rec.seq[far_bound:]+rec.seq[:near_bound]
 
         ## MODIFIED BEHAVIOUR:
         #  Take BETWEEN the rRNA and the tRNA.
         # This is "backwards" because the expected far bound is nearer when this happens.
         else:
-            self.clipped_after += rec.seq[max(0, far_bound):max(0, near_bound)]
-
-        return (self.clipped_after+self.clipped_before)
+            return rec.seq[far_bound:near_bound]
 
 # biopython can also do this, but I feel like it's easier to do it this way if I just need the one thing.
 # makes a translation dictionary in case of reverse compliments
@@ -215,52 +186,65 @@ def reverse_comp(seq):
     """returns the reverse complement string of a sequence string."""
     return seq.translate(NT_COMP_DICT)[::-1]
 
-def prepare_line(line):
-    """clips the newline off and splits by tabs."""
-    return line.strip().split("\t")
-
 def circular_distance(a, b, l):
-    """
-    Finds the shortest distance between two points along the perimeter of a circle.
-    """
+    """Finds the shortest distance between two points along the perimeter of a circle and returns it."""
     arc = abs(a - b) % l # the distance between these in one direction -- not necessarily the shortest distance
     return min(l - arc, arc) # the arc and the complement of the arc, one of which will be shorter than the other.
 
-def find_bound(seq, rec, bound_tuple, anchor, side):
+def find_bound(seq, all_annots, bound_tuple, anchor, side):
+    """
+    Takes a SeqInfo object, a list of annotations, a tuple containing all the bounds we're looking for,the anchor location
+    for that feature, and a side ("start"/"end"), and sets the sequence's start or end annotation for later cutting
+    """
     for bound in bound_tuple:
          # through every feature in every record
-        for annot in rec.features:
+        for annot in all_annots:
             # if it's the correct bound,
             if annot.qualifiers["product"][0] == bound:
+                # if there isn't an anchor and this new annotation is not closer than the old one, skip replacing the annotation
+                if (not (anchor == -1
+                        or seq.check_anchor(anchor, annot, side))):
+                    continue
+
+                seq.set_side(annot, side)
                 if anchor == -1:
-                    seq.set_side(annot, side)
-                    return True # stop searching once we find a match for this -- we prioritize the start of the list when there's no anchor
+                    return True
+                    # stop searching once we find a match for this -- we prioritize the start of the list when there's no anchor
                     # Also we have no way of knowing if it's correct when we have no anchor, so we just stop everything.
-                    # It's a shot in the dark anyway, so why not use the shot that takes the least
+                    # It's a shot in the dark anyway, so why not use the shot that takes the least time and energy
                     # If it's the only one, this'll find it and there won't be any more anyway.
-                elif seq.check_anchor(anchor, annot, side):
-                    # if this is closer than the other ones found so far, change the start and the anchor distance
-                    seq.set_anchor(anchor, annot, side)
-                    seq.set_side(annot, side)
-                    # don't stop going through if there's an anchor, we need to find the shortest distance.
+
+def find_annots(annot, bound_tuple, out_list):
+    """
+    This is just offloading me having to write the same loop construct and if statement.
+    It loops through all the elements of the given tuple, and looks to see if one if the same as the given annotation.
+    if it is, it adds the annotation to the list given as out_list
+    """
+    for a_name in bound_tuple:
+        if annot.qualifiers["product"][0] == a_name:
+            out_list.append(annot)
+
+def find_anchor(bound_start_anchor, start_anchor_annots):
+    for s_anch in bound_start_anchor:
+        for annot in start_anchor_annots:
+            if annot.qualifiers["product"][0] == s_anch:
+                return annot.location.start # Bonus: this breaks both loops
+    return -1 # otherwise, return the default (which is -1)
 
 def main():
     """Main CLI entry point for extract-control.py"""
     args = get_params()
 
-    # dictionary of sequences indexed by name
-
     with open(args.input, 'r') as seq_file:
         # highest to lowest priority, e.x. 12S is preferred to 12S (partial)
-        bound_start = ("mtRNA-Ile(gat)","mtRNA-Ile(aat)")
+        bound_start = ("mtRNA-Ile(gat)", "mtRNA-Ile(aat)")
         bound_end = ("12S ribosomal RNA", "12S ribosomal RNA (partial)")
         # anchors are basically only for tRNAs as boundaries because tRNAs are easy to copy and move,
-        # and are sometime just totally mis-annotated when done automatically.
+        # and are sometimes just totally mis-annotated when done automatically.
         # So we use a protein coding gene, preferably large so it's harder to translocate, but generally just the closest.
         # Then we find the closest tRNA to that gene and use that.
-        # IF NO ANCHOR IS GIVEN OR FOUND, it just uses the first occurence of the
+        # IF NO ANCHOR IS GIVEN OR FOUND, it just uses the first occurence of the highest priority bound marker
         bound_start_anchor = ("NADH-ubiquinone oxidoreductase chain 2",)
-        bound_end_anchor = ()
 
         s_anchor_loc = -1
         e_anchor_loc = -1
@@ -269,30 +253,64 @@ def main():
         # through every sequence record in the gff
         for rec in GFF.parse(seq_file):
 
-            seq = SeqInfo(len(rec.seq))
+            seq = SeqInfo(rec)
+
+            # theses are lists of compiled annotations so we don't have to loop through the entire list multiple times
+            start_anchor_annots = []
+            start_annots = []
+            end_annots = []
 
             # go through everything to find the anchors
             for annot in rec.features:
-                for s_anch in bound_start_anchor:
+                # Find the annotations that correspond to elements of the tuples, then put them in the annots list for each.
+                find_annots(annot, bound_start_anchor, start_anchor_annots)
+                find_annots(annot, bound_start, start_annots)
+                find_annots(annot, bound_end, end_annots)
+
+            s_anchor_loc = find_anchor(bound_start_anchor, start_anchor_annots)
+
+            for s_anch in bound_start_anchor:
+                for annot in start_anchor_annots:
                     if annot.qualifiers["product"][0] == s_anch:
                         s_anchor_loc = annot.location.start
-                        break
-                for e_anch in bound_end_anchor:
-                    if annot.qualifiers["product"][0] == e_anch:
-                        e_anchor_loc = annot.location.start
-                        break
 
             # through every possible start/end bound
-            find_bound(seq, rec, bound_start, s_anchor_loc, "start")
-            find_bound(seq, rec, bound_end, e_anchor_loc, "end")
+            find_bound(seq, start_annots, bound_start, s_anchor_loc, "start")
+            find_bound(seq, end_annots, bound_end, e_anchor_loc, "end")
 
             # go through the sequence and extract the sequence
             # check if it's reversed and/or flipped
-            seq.check_revcomp()
-            seq.check_flip()
+            if seq.check_revcomp():
+                seq.set_rev_comp(True)
+                # we have to set inner flag to be "flipped" because of the orientation of the sequence.
+                seq.set_inner_flag(True)
+                # let me essplane:
 
+                # Normal: 5'~tRNA------->12S>~~3'          ║ Reverse complement: 3'~~<12S<-------tRNA~5'
+                # the tRNA is before the rRNA, so we take  ║ The rRNA is before the tRNA, but we still have
+                # from the start, until the tRNA, then     ║ to take the outer. Because the rotation checker
+                # from the rRNA to the end.                ║ only checks for the position of the rRNA vs tRNA,
+                #                                          ║ it'll see the 12S before and decide that we need
+                #                                          ║ to take the centre, which is false. So we pre-set
+                #                                          ║ it to true to trick it into being correct by
+                #                                          ║ toggling itself back to getting the edges.
+                #══════════════════════════════════════════╬══════════════════════════════════════════════════
+                # Rotated: 5'--->12S>~~~tRNA----3'         ║ Rotated RevComp: 3'----tRNA~~~<12S<---5'
+                # The 12S rRNA is before the tRNA, so we   ║ We want the centre, but since the 12S is after
+                # take the inner sequence, not the edges.  ║ the tRNA, the rotation checker will ignore it as
+                # The rotation checker will see the 12S    ║ correct, and take the edges unless we set it to
+                # before the tRNA and switch to taking the ║ true (which we did).
+                # middle instead of the edges.             ║
+
+                # Is this a kludgy hack born out of tech debt? Probably. Still works, tho
+            if seq.check_flip():
+                seq.toggle_inner_flag() # take from between instead of the tails
+                # it has to be a toggle instead of an assignment because of weirdnesss with rotated reverse complements.
+
+            # get the sequence going out
             out_seq = seq.parse_seq(rec)
-            if seq.rev_comp:
+            # if it's supposed to get reversed, reverse it.
+            if seq.get_rev_comp():
                 out_seq = reverse_comp(out_seq)
 
             # print it out
