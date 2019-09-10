@@ -37,8 +37,9 @@ def get_params():
         Takes a MAST output .xml file and makes a gff annotation file out of it.
         """.strip())
 
-    parser.add_argument("--mast", help="The motif.xml file to be worked on.")
-    parser.add_argument("--out", help="The output destination (usually a .gff)")
+    parser.add_argument("--input", help="The motif.xml file to be worked on.")
+    parser.add_argument("--output", help="The output destination (usually a .gff)")
+    parser.add_argument("--force", action="store_true", help="Overwrites the output if it already exists.")
 
     return parser.parse_args()
 
@@ -64,8 +65,15 @@ def main():
         "y": -1
     }
 
+    # if we're overwriting, it'll get handled later. If not, and the file already exists, stop before you
+    # waste your time analyzing the file.
+    if not args.force:
+        with open(args.output, "x") as out_file:
+            pass
+
     # crack the input file open and look at it 👀
-    with open(args.mast) as mast_file:
+    with open(args.input) as mast_file:
+
         xml = BeautifulSoup(mast_file, 'lxml')
 
         # grab attributes from all the motif tags
@@ -107,7 +115,7 @@ def main():
                 )
 
     # open the outfile and start writing the sequence list to the file
-    with open(args.out, "w") as out_file:
+    with open(args.output, "w") as out_file:
         GFF.write(seqs, out_file)
 
 if __name__ == '__main__':

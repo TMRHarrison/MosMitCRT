@@ -139,7 +139,7 @@ process extractControlSeq {
   fasta = "${inp.baseName}_controlSeq.fasta"
 
   """
-  extract-control.py --input ${inp} > ${fasta}
+  extract-control.py --input ${inp} --output ${fasta}
   """
 
 }
@@ -187,12 +187,15 @@ process annotateMotifs {
   file seqs from annotateContReg_ch // <--- input
 
   output:
-  file "annotations.gff" // ---> output
+  file annot // ---> output
   file "annSeq.gff" // ---> output
 
+  script:
+  annot = "annotations.gff"
+
   """
-  mast-annotate.py --mast ${inp} --out annotations.gff && \
-  bind-gff-to-fasta.py --gff annotations.gff --fasta ${seqs} > annSeq.gff
+  mast-annotate.py --input ${inp} --output ${annot} && \
+  bind-gff-to-fasta.py --gff ${annot} --fasta ${seqs} --output annSeq.gff
   """
 
 }

@@ -21,13 +21,9 @@ The general process is as follows:
  !! by Ile-tRNA and 12S rRNA                                               !!
 """
 
-#   Make the sequences print to files instead of being held in memory?
 #   Extend the system to clip any control region, given command line arguments for the annotation boundaries
 
-"""
-Add a way to disable circular distance
-
-"""
+# Disable circular distance?
 
 # command line arguments, regular expressions
 import argparse
@@ -44,6 +40,8 @@ def get_params():
         the start/end of the sequence. Output is done through standard output.
         """.strip())
     parser.add_argument("--input", help="The file to be worked on. GFF format with a ##FASTA section.")
+    parser.add_argument("--output", help="The destination of the output file.")
+    parser.add_argument("--force", action="store_true", help="Overwrites the output if it already exists.")
 
     return parser.parse_args()
 
@@ -155,7 +153,7 @@ def circular_distance(a, b, C):
     Finds the shortest distance between two points along the perimeter of a circle and returns it.
     """
     arc = abs(a - b) % C # the distance between these in one direction -- not necessarily the shortest distance
-    return min(l - arc, arc) # the arc and the complement of the arc, one of which will be shorter than the other.
+    return min(C - arc, arc) # the arc and the complement of the arc, one of which will be shorter than the other.
 
 def check_anchor(anchor_loc, seq_len, annot1, annot2):
     """
@@ -227,7 +225,12 @@ def main():
     """Main CLI entry point for extract-control.py"""
     args = get_params()
 
-    with open(args.input, 'r') as seq_file:
+    # make a new file, either forcing overwrite of the old file or not, depending on the setting.
+    with open(args.output, "w" if args.force else "x") as out_file:
+        pass
+
+    with open(args.input, "r") as seq_file:
+
         # highest to lowest priority, e.x. 12S is preferred to 12S (partial)
         bound_start = ("mtRNA-Ile(gat)", "mtRNA-Ile(aat)")
         bound_end = ("12S ribosomal RNA", "12S ribosomal RNA (partial)")
@@ -300,9 +303,11 @@ def main():
             if rev_comp:
                 out_seq = out_seq.reverse_complement()
 
-            # print it out
-            print(">"+rec.id+"_cont_reg")
-            print(out_seq)
+
+            # print it out to the file
+            with open(args.output, "a") as out_file:
+                out_file.write(">"+rec.id+"_cont_reg\n")
+                out_file.write(str(out_seq)+"\n")
 
 if __name__ == '__main__':
     main()

@@ -18,25 +18,31 @@ def get_params():
         """.strip())
     parser.add_argument("--gff", help="The gff file to be worked on.")
     parser.add_argument("--fasta", help="The FASTA sequence file to be worked on. Make sure it matches the annotation file.")
+    parser.add_argument("--output", help="The destination of the output file.")
+    parser.add_argument("--force", action="store_true", help="Overwrites the output if it already exists.")
 
     return parser.parse_args()
 
 def main():
     """
     this just prints all the contents of the .gff, then prints the ##FASTA tag, then all the fasta sequences.
-    it should probably go directly into a file instead of relying on standardoutput, but whatever, it works.
     """
     args = get_params()
 
-    with open(args.gff) as gff_file:
-        for i in gff_file:
-            print(i, end='')
+    # make a new file, either forcing overwrite of the old file or not, depending on the setting.
+    with open(args.output, "w" if args.force else "x") as out_file:
+        pass
 
-    print("##FASTA")
+    with open(args.output, "a") as out_file:
+        with open(args.gff) as gff_file:
+            for i in gff_file:
+                out_file.write(i)
 
-    with open(args.fasta) as fasta_file:
-        for i in fasta_file:
-            print(i, end='')
+        out_file.write("##FASTA\n")
+
+        with open(args.fasta) as fasta_file:
+            for i in fasta_file:
+                out_file.write(i)
 
 if __name__ == '__main__':
     main()
