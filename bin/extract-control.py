@@ -61,31 +61,21 @@ class SeqInfo:
         # start annotation is annotation that should be on the near end of the final outputted control sequence.
         # end is the same but for the far end.
         self.anno = {}
-        # Just as notation; these don't get initialized.
+        # Just as notation; these don't get initialized. If they did, they'd be None, which gets assigned to them later
+        # if nothing is found.
         #self.anno["start"]
         #self.anno["end"]
-        self.inner_flag = False
-        self.rev_comp = False
 
-    def set_rev_comp(self, boole):
-        self.rev_comp = boole
-
-    def get_rev_comp(self):
-        return self.rev_comp
-
-    def set_inner_flag(self, boole):
-        self.inner_flag = boole
-
-    def toggle_inner_flag(self):
-        self.inner_flag = not self.inner_flag
+    def __len__(self):
+        return len(self.record)
 
     def check_flip(self):
         """
         checks if the features has been flipped from the expected orientation (5'-B---A-3' instead of 5'-A---B-3').
         returns T/F
         """
-        return ("end" in self.anno
-                and "start" in self.anno
+        return (self.anno["end"] is not None
+                and self.anno["start"] is not None
                 and self.anno["end"].location.start < self.anno["start"].location.start)
 
     def check_revcomp(self):
@@ -95,29 +85,14 @@ class SeqInfo:
         """
         # operating under the assumption that the 12S rRNA is on the negative strand
         # so if it isn't, we assume that we're looking at the reverse complement of what we're normally looking at
-        return ("end" in self.anno
+        return (self.anno["end"] is not None
                 and self.anno["end"].location.strand == 1)
-
-    def check_anchor(self, anchor_loc, annot, side):
-        """
-        Checks if the new annotation would be closer or further from the anchor point
-        Returns T/F
-        """
-        # here's how this one goes:
-        # We pick two points on a circle and find the distance between them
-        # this is the absolute distance between the two points, i.e. the distance between the anchor and the bound
-        # then we see if the new one is closer than the old one.
-        # This automatically succeeds if there's no current annotation for the side
-        return ((not side in self.anno)
-                or (circular_distance(annot.location.start, anchor_loc, len(self.record.seq))
-                    < circular_distance(self.anno[side].location.start, anchor_loc, len(self.record.seq))
-                ))
 
     def set_side(self, annot, side):
         """Sets the boundary annotation for a given side"""
         self.anno[side] = annot
 
-    def parse_seq(self, rec):
+    def parse_seq(self, rev_comp, inner):
         """
         Clips the relevant sequence data from sequences.
 
@@ -144,7 +119,7 @@ class SeqInfo:
         the start of the "end." In this case, it's double reversed so the annotation names
         actually bodge their way to being correct.
 
-        Returns a string.
+        Returns a sequence object.
         """
 
         # if we're looking at the reverse complement, we need to flip the boundaries.
@@ -152,69 +127,89 @@ class SeqInfo:
         # The "near" bound is closer to the 5' end
         near_bound = 0
         # It's the "far" bound because it's further from the 5' end.
-        far_bound = len(self.record.seq)
+        far_bound = len(self)
 
         # Set the variables to their correct value, assuming the boundaries were found, otherwise
         # they just stay as the defaults.
-        if self.rev_comp:
-            if "end" in self.anno: near_bound = self.anno["end"].location.start
-            if "start" in self.anno: far_bound = self.anno["start"].location.end
+        if rev_comp:
+            if self.anno["end"] is not None: near_bound = self.anno["end"].location.start
+            if self.anno["start"] is not None: far_bound = self.anno["start"].location.end
         else:
-            if "start" in self.anno: near_bound = self.anno["start"].location.start
-            if "end" in self.anno: far_bound = self.anno["end"].location.end
+            if self.anno["start"] is not None: near_bound = self.anno["start"].location.start
+            if self.anno["end"] is not None: far_bound = self.anno["end"].location.end
 
         ## DEFAULT BEHAVIOUR:
         # take from the 12S rRNA to the end, then from teh beginning to the
-        if not self.inner_flag:
-            return rec.seq[far_bound:]+rec.seq[:near_bound]
+        if not inner:
+            return self.record.seq[far_bound:]+self.record.seq[:near_bound]
 
         ## MODIFIED BEHAVIOUR:
         #  Take BETWEEN the rRNA and the tRNA.
         # This is "backwards" because the expected far bound is nearer when this happens.
         else:
-            return rec.seq[far_bound:near_bound]
+            return self.record.seq[far_bound:near_bound]
 
 def circular_distance(a, b, l):
     """Finds the shortest distance between two points along the perimeter of a circle and returns it."""
     arc = abs(a - b) % l # the distance between these in one direction -- not necessarily the shortest distance
     return min(l - arc, arc) # the arc and the complement of the arc, one of which will be shorter than the other.
 
-def find_bound(seq, all_annots, bound_tuple, side, anchor=-1):
+def check_anchor(anchor_loc, seq_len, annot1, annot2):
+    """
+    Checks if the new annotation would be closer or further from the anchor point
+    Returns T/F
+    """
+    # here's how this one goes:
+    # We pick two points on a circle and find the distance between them
+    # this is the absolute distance between the two points, i.e. the distance between the anchor and the bound
+    # then we see if the new one is closer than the old one.
+    # This automatically succeeds if there's no current annotation for the side
+    return (circular_distance(annot1.location.start, anchor_loc, seq_len)
+            > circular_distance(annot2.location.start, anchor_loc, seq_len))
+
+def find_bound(seq_len, all_annots, bound_tuple, anchor=-1):
     """
     Takes a SeqInfo object, a list of annotations, a tuple containing all the bounds we're looking for,the anchor location
     for that feature, and a side ("start"/"end"), and sets the sequence's start or end annotation for later cutting
+    Returns an annotation or None.
     """
+    best_fit = None
     for bound in bound_tuple:
          # through every feature in every record
         for annot in all_annots:
-            # if it's the correct bound,
+            # if it's the correct bound
             if annot.qualifiers["product"][0] == bound:
-                # if there isn't an anchor and this new annotation is not closer than the old one, skip replacing the annotation
-                if (not (anchor == -1
-                        or seq.check_anchor(anchor, annot, side))):
+                # if there is a best fit and it is closer than the new one, skip this annotation.
+                # if there isn't a best fit, or the new annotation is closer to the anchor, reassign best_fit
+                # This won't stop anchorless annotations from working: anchorless annotations escape the loops
+                # shortly after finding one that fits.
+                if (best_fit is not None
+                        and check_anchor(anchor, seq_len, annot, best_fit)):
                     continue
-
-                seq.set_side(annot, side)
+                best_fit = annot
                 if anchor == -1:
-                    return True
+                    return best_fit
                     # stop searching once we find a match for this -- we prioritize the start of the list when there's no anchor
                     # Also we have no way of knowing if it's correct when we have no anchor, so we just stop everything.
                     # It's a shot in the dark anyway, so why not use the shot that takes the least time and energy
                     # If it's the only one, this'll find it and there won't be any more anyway.
+    # if there's an anchor, we have to get to the very end to find the best match. Otherwise, it breaks early, as above.
+    return best_fit
 
-def find_annots(annot, bound_tuple, out_list):
+def find_annots(annot, bound_tuple):
     """
-    This is just offloading me having to write the same loop construct and if statement.
-    It loops through all the elements of the given tuple, and looks to see if one if the same as the given annotation.
-    if it is, it adds the annotation to the list given as out_list
+    Loops through all the elements of the given tuple, and looks to see if one if the same as the given annotation.
+    Returns T/F
     """
     for a_name in bound_tuple:
         if annot.qualifiers["product"][0] == a_name:
-            out_list.append(annot)
+            return True
+    return False
 
 def find_anchor(bound_start_anchor, start_anchor_annots):
     """
     Finds the first available anchor gene and returns its position
+    returns the start position of the anchor or -1 if there's no anchor
     """
     for s_anch in bound_start_anchor:
         for annot in start_anchor_annots:
@@ -251,27 +246,25 @@ def main():
             # go through everything to find the anchors
             for annot in rec.features:
                 # Find the annotations that correspond to elements of the tuples, then put them in the annots list for each.
-                find_annots(annot, bound_start_anchor, start_anchor_annots)
-                find_annots(annot, bound_start, start_annots)
-                find_annots(annot, bound_end, end_annots)
+                if find_annots(annot, bound_start_anchor): start_anchor_annots.append(annot)
+                if find_annots(annot, bound_start): start_annots.append(annot)
+                if find_annots(annot, bound_end): end_annots.append(annot)
 
             s_anchor_loc = find_anchor(bound_start_anchor, start_anchor_annots)
 
-            for s_anch in bound_start_anchor:
-                for annot in start_anchor_annots:
-                    if annot.qualifiers["product"][0] == s_anch:
-                        s_anchor_loc = annot.location.start
-
             # through every possible start/end bound
-            find_bound(seq, start_annots, bound_start, "start", s_anchor_loc)
-            find_bound(seq, end_annots, bound_end, "end")
+            seq.set_side(find_bound(len(seq), start_annots, bound_start, s_anchor_loc), "start")
+            seq.set_side(find_bound(len(seq), end_annots, bound_end), "end")
 
-            # go through the sequence and extract the sequence
+            rev_comp = False
+            inner = False
+
             # check if it's reversed and/or flipped
             if seq.check_revcomp():
-                seq.set_rev_comp(True)
+                rev_comp = True
+                inner = True
                 # we have to set inner flag to be "flipped" because of the orientation of the sequence.
-                seq.set_inner_flag(True)
+
                 # let me essplane:
 
                 # Normal: 5'~tRNA------->12S>~~3'          ║ Reverse complement: 3'~~<12S<-------tRNA~5'
@@ -292,13 +285,13 @@ def main():
 
                 # Is this a kludgy hack born out of tech debt? Probably. Still works, tho
             if seq.check_flip():
-                seq.toggle_inner_flag() # take from between instead of the tails
-                # it has to be a toggle instead of an assignment because of weirdnesss with rotated reverse complements.
+                inner = not inner # take from between instead of the tails
+                # it has to be a toggle instead of an assignment because of the weirdnesss with rotated reverse complements.
 
-            # get the sequence going out
-            out_seq = seq.parse_seq(rec)
+            # get the sequence
+            out_seq = seq.parse_seq(rev_comp, inner)
             # if it's supposed to get reversed, reverse it.
-            if seq.get_rev_comp():
+            if rev_comp:
                 out_seq = out_seq.reverse_complement()
 
             # print it out
