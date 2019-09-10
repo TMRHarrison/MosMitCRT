@@ -149,14 +149,18 @@ class SeqInfo:
         else:
             return self.record.seq[far_bound:near_bound]
 
-def circular_distance(a, b, l):
-    """Finds the shortest distance between two points along the perimeter of a circle and returns it."""
-    arc = abs(a - b) % l # the distance between these in one direction -- not necessarily the shortest distance
+def circular_distance(a, b, C):
+    """
+    Where a and b are points along a circumference, and C is the circle's circumference.
+    Finds the shortest distance between two points along the perimeter of a circle and returns it.
+    """
+    arc = abs(a - b) % C # the distance between these in one direction -- not necessarily the shortest distance
     return min(l - arc, arc) # the arc and the complement of the arc, one of which will be shorter than the other.
 
 def check_anchor(anchor_loc, seq_len, annot1, annot2):
     """
-    Checks if the new annotation would be closer or further from the anchor point
+    Given a location for the anchor, the total length of the sequence, and two annotations,
+    Checks if the second annotation would be closer to the anchor point.
     Returns T/F
     """
     # here's how this one goes:
@@ -169,8 +173,10 @@ def check_anchor(anchor_loc, seq_len, annot1, annot2):
 
 def find_bound(seq_len, all_annots, bound_tuple, anchor=-1):
     """
-    Takes a SeqInfo object, a list of annotations, a tuple containing all the bounds we're looking for,the anchor location
-    for that feature, and a side ("start"/"end"), and sets the sequence's start or end annotation for later cutting
+    Takes a sequence length, a list of annotations, a tuple containing all the bounds we're looking for, and the anchor location
+    for that feature.
+    If no anchor is given, it finds the first annotation that matches the highest priority boundary.
+    If an anchor is given, it finds the annotation closest to the anchor.
     Returns an annotation or None.
     """
     best_fit = None
