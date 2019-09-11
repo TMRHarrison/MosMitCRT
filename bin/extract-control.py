@@ -25,9 +25,11 @@ The general process is as follows:
 
 # Disable circular distance?
 
-# command line arguments, regular expressions
+# command line arguments, GFF parser
 import argparse
 from BCBio import GFF
+# Type hinting
+from typing import Dict, Tuple, Iterable
 
 def get_params():
     """Returns the command line arguments."""
@@ -67,7 +69,7 @@ class SeqInfo:
     def __len__(self):
         return len(self.record)
 
-    def check_flip(self):
+    def check_flip(self) -> bool:
         """
         checks if the features has been flipped from the expected orientation (5'-B---A-3' instead of 5'-A---B-3').
         returns T/F
@@ -76,7 +78,7 @@ class SeqInfo:
                 and self.anno["start"] is not None
                 and self.anno["end"].location.start < self.anno["start"].location.start)
 
-    def check_revcomp(self):
+    def check_revcomp(self) -> bool:
         """
         Checks if the end annnotation has been flipped.
         Returns T/F
@@ -86,11 +88,11 @@ class SeqInfo:
         return (self.anno["end"] is not None
                 and self.anno["end"].location.strand == 1)
 
-    def set_side(self, annot, side):
+    def set_side(self, annot, side) -> None:
         """Sets the boundary annotation for a given side"""
         self.anno[side] = annot
 
-    def parse_seq(self, rev_comp, inner):
+    def parse_seq(self, rev_comp: bool, inner: bool) -> str:
         """
         Clips the relevant sequence data from sequences.
 
@@ -137,7 +139,7 @@ class SeqInfo:
             if self.anno["end"] is not None: far_bound = self.anno["end"].location.end
 
         ## DEFAULT BEHAVIOUR:
-        # take from the 12S rRNA to the end, then from teh beginning to the
+        # take from the 12S rRNA to the end, then from the beginning to the
         if not inner:
             return self.record.seq[far_bound:]+self.record.seq[:near_bound]
 
@@ -147,29 +149,47 @@ class SeqInfo:
         else:
             return self.record.seq[far_bound:near_bound]
 
-def circular_distance(a, b, C):
+def circular_distance(a: int, b: int, C: int) -> int:
     """
-    Where a and b are points along a circumference, and C is the circle's circumference.
-    Finds the shortest distance between two points along the perimeter of a circle and returns it.
+    Finds the shortest distance between two points along the perimeter of a circle.
+
+    Args:
+        a: a point on a circle's circumference.
+        b: another point on the cicrle.
+        C: the total circumference of the circle.
+    Returns:
+        a the shortest good.
+
+    >>> circular_distance(2,5,10)
+    3
+
+    >>> circular_distance(12,3,15)
+    6
     """
     arc = abs(a - b) % C # the distance between these in one direction -- not necessarily the shortest distance
     return min(C - arc, arc) # the arc and the complement of the arc, one of which will be shorter than the other.
 
-def check_anchor(anchor_loc, seq_len, annot1, annot2):
+def check_anchor(anchor_loc: int, seq_len: int , loc1: int , loc2: int) -> bool:
     """
     Given a location for the anchor, the total length of the sequence, and two annotations,
     Checks if the second annotation would be closer to the anchor point.
     Returns T/F
+
+    >>> check_anchor(10,20,4,15)
+    True
+    >>> check_anchor(5,20,2,9)
+    False
+    >>> #It even works with numbers >C or <0
+    ... circular_distance(-20, 37, 10)
+    3
     """
     # here's how this one goes:
-    # We pick two points on a circle and find the distance between them
-    # this is the absolute distance between the two points, i.e. the distance between the anchor and the bound
-    # then we see if the new one is closer than the old one.
-    # This automatically succeeds if there's no current annotation for the side
-    return (circular_distance(annot1.location.start, anchor_loc, seq_len)
-            > circular_distance(annot2.location.start, anchor_loc, seq_len))
+    # We get the circular distance of two points from the same anchor
+    # Then we see if the first one is larger than the second
+    return (circular_distance(loc1, anchor_loc, seq_len)
+            > circular_distance(loc2, anchor_loc, seq_len))
 
-def find_bound(seq_len, all_annots, bound_tuple, anchor=-1):
+def find_bound(seq_len: int, all_annots, bound_tuple: Tuple[str], anchor: int=None):
     """
     Takes a sequence length, a list of annotations, a tuple containing all the bounds we're looking for, and the anchor location
     for that feature.
@@ -188,10 +208,10 @@ def find_bound(seq_len, all_annots, bound_tuple, anchor=-1):
                 # This won't stop anchorless annotations from working: anchorless annotations escape the loops
                 # shortly after finding one that fits.
                 if (best_fit is not None
-                        and check_anchor(anchor, seq_len, annot, best_fit)):
+                        and check_anchor(anchor, seq_len, annot.location.start, best_fit.location.start)):
                     continue
                 best_fit = annot
-                if anchor == -1:
+                if anchor == None:
                     return best_fit
                     # stop searching once we find a match for this -- we prioritize the start of the list when there's no anchor
                     # Also we have no way of knowing if it's correct when we have no anchor, so we just stop everything.
@@ -200,13 +220,18 @@ def find_bound(seq_len, all_annots, bound_tuple, anchor=-1):
     # if there's an anchor, we have to get to the very end to find the best match. Otherwise, it breaks early, as above.
     return best_fit
 
-def find_annots(annot, bound_tuple):
+def find_annots(product: str, bound_tuple: Tuple[str]) -> bool:
     """
     Loops through all the elements of the given tuple, and looks to see if one if the same as the given annotation.
     Returns T/F
+
+    >>> find_annots("a", ("a","b","c"))
+    True
+    >>> find_annots("c", ("b","d"))
+    False
     """
     for a_name in bound_tuple:
-        if annot.qualifiers["product"][0] == a_name:
+        if product == a_name:
             return True
     return False
 
@@ -219,7 +244,11 @@ def find_anchor(bound_start_anchor, start_anchor_annots):
         for annot in start_anchor_annots:
             if annot.qualifiers["product"][0] == s_anch:
                 return annot.location.start # Bonus: this breaks both loops
-    return -1 # otherwise, return the default (which is -1)
+    return None # otherwise, return the default (which is -1)
+
+#  Dict[str, SeqFeature] ->  -> list[SeqFeature]
+def get_features(product_features, products: Iterable[str]):
+    return [product_features[p] for p in products if p in product_features]
 
 def main():
     """Main CLI entry point for extract-control.py"""
@@ -247,17 +276,26 @@ def main():
 
             seq = SeqInfo(rec)
 
+            # Make a dictionary called prod_features containing SeqFeature objects where the key is the product name
+            # and the value is a list of features that contain the same product tags.
+            prod_features: Dict[str, SeqFeature] = {f.qualifiers['product'][0]: f for f in rec.features if 'product' in f.qualifiers}
+
+            start_anchor_annots = get_features(prod_features, bound_start_anchor)
+            start_annots = get_features(prod_features, bound_start)
+            end_annots = get_features(prod_features, bound_end)
+
+            """
             # theses are lists of compiled annotations so we don't have to loop through the entire list multiple times
             start_anchor_annots = []
             start_annots = []
             end_annots = []
-
             # go through everything to find the anchors
             for annot in rec.features:
                 # Find the annotations that correspond to elements of the tuples, then put them in the annots list for each.
-                if find_annots(annot, bound_start_anchor): start_anchor_annots.append(annot)
-                if find_annots(annot, bound_start): start_annots.append(annot)
-                if find_annots(annot, bound_end): end_annots.append(annot)
+                if find_annots(annot.qualifiers["product"][0], bound_start_anchor): start_anchor_annots.append(annot)
+                if find_annots(annot.qualifiers["product"][0], bound_start): start_annots.append(annot)
+                if find_annots(annot.qualifiers["product"][0], bound_end): end_annots.append(annot)
+            """
 
             s_anchor_loc = find_anchor(bound_start_anchor, start_anchor_annots)
 

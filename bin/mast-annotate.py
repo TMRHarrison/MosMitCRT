@@ -60,10 +60,6 @@ def main():
     mot = []  # motifs
 
     # MAST uses a "reverse complement" tag, so no = + strand, yes = - strand
-    strand = {
-        "n": 1,
-        "y": -1
-    }
 
     # if we're overwriting, it'll get handled later. If not, and the file already exists, stop before you
     # waste your time analyzing the file.
@@ -78,17 +74,16 @@ def main():
 
         # grab attributes from all the motif tags
         for mot_tag in xml.find_all("motif"):
-            alt_name = ""
             #if there is an alt name, add it
-            if mot_tag.has_attr("alt"):
-                alt_name = mot_tag["alt"]+" "
+            alt_name = mot_tag.attrs.get("alt", "")
 
             # make a new object in the table
             mot.append(Mot(mot_tag["id"], alt_name, int(mot_tag["length"])))
 
         # grab all the sequence tags and get their names and lengths.
         for seq_tag in xml.find_all("sequence"):
-            seqs.append(SeqRecord("A"*(int(seq_tag["length"])),seq_tag["name"]))
+            seq = SeqRecord("A"*(int(seq_tag["length"])),seq_tag["name"])
+            seqs.append(seq)
 
             # then, go through every hit under each sequence to find the actual motif locations.
             for hit_tag in seq_tag.find_all("hit"):
@@ -98,18 +93,19 @@ def main():
                 qualifiers = {
                     "source": "MEME Suite",
                     "Note": "p-value:"+hit_tag["pvalue"],
-                    "Name": cur_motif.altn+cur_motif.name
+                    # If the alt name is empty, just the name. Otherwise, altn+" "+name
+                    "Name": " ".join(filter(None, [cur_motif.altn, cur_motif.name]))
                 }
 
                 # build the sequence feature object
-                seqs[len(seqs)-1].features.append(
+                seq.features.append(
                     SeqFeature(
                         FeatureLocation(
                             int(hit_tag["pos"])-1, # MAST indexes at 1, biopython indexes at 0
                             int(hit_tag["pos"])+cur_motif.length-1
                         ),
                         type="nucleotide_motif",
-                        strand=strand[hit_tag["rc"]],
+                        strand=-1 if hit_tag["rc"] == "y" else 1,
                         qualifiers=qualifiers
                     )
                 )

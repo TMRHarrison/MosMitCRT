@@ -173,7 +173,7 @@ process findMotifs {
   file "mast/**" // ---> output
 
   """
-  mast -o ./mast ${ref} ${inp}
+  mast -o ./mast -bfile --motif-- ${ref} ${inp}
   """
 
 }
