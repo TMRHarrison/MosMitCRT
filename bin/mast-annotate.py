@@ -67,7 +67,7 @@ def get_seq_info(xml_path: str):
     mot = []  # motifs
 
     # crack the input file open and look at it 👀
-    xml = get_xml_data()
+    xml = get_xml_data(xml_path)
 
     # grab attributes from all the motif tags
     for mot_tag in xml.find_all("motif"):
@@ -106,6 +106,7 @@ def get_seq_info(xml_path: str):
                     qualifiers=qualifiers
                 )
             )
+
     return seqs
 
 def main():
