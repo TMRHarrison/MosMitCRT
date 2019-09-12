@@ -47,107 +47,124 @@ def get_params():
 
     return parser.parse_args()
 
-class SeqInfo:
+def check_flip(start_annot, end_annot) -> bool:
     """
-    Stores the sequence record object and its annotations that are currently being used as boundaries.
-    Also has some methods to deal with looking for the boundaries, finding the control region, etc.
+    checks if the features have been flipped from the expected orientation (5'-B---A-3' instead of 5'-A---B-3').
+    returns T/F
+    """
+    return (end_annot is not None
+            and start_annot is not None
+            and end_annot.location.start < start_annot.location.start)
+
+def check_rev_comp(end_annot) -> bool:
+    """
+    Checks if the end annnotation has been flipped.
+    Returns T/F
+    """
+    # operating under the assumption that the 12S rRNA is on the negative strand
+    # so if it isn't, we assume that we're looking at the reverse complement of what we're normally looking at
+    return (end_annot is not None
+            and end_annot.location.strand == 1)
+
+def parse_seq(rec, start_annot, end_annot) -> str:
+    """
+    Clips the relevant sequence data from sequences.
+
+    There are four possible states for the sequence:
+    - Normal orientation
+    - reverse complement
+    - annotations in reverse order (sequence has been rotated)
+    - reverse complement rotated
+
+    In a normal orientation, it gets sequence data from the 1 position, to the
+    start of the "near" annotation, then skips all nucleotides until the end of the
+    "end" annotation. These sequences are then concatenated together.
+
+    In the reverse complement, it still grabs data from the edges, but from 1 to the
+    start of the "far" annotation, and after the end of the "near" annotation. These
+    annotation are only "near" and "far" in reference to the normal orientation. In
+    the reverse complement, they get reversed.
+
+    In reverse order, it gets from the end of the "far" to the start of the "near"
+    sequence. Again, the annotations are only far/near in reference to the normal
+    orientation of the sequence.
+
+    In the reverse complement reverse order, it gets from the end of the "start" to
+    the start of the "end." In this case, it's double reversed so the annotation names
+    actually bodge their way to being correct.
+
+    Returns a sequence object.
     """
 
-    def __init__(self, rec):
-        """
-        Constructor for SeqInfo, takes a biopython sequence record and finds everything else later.
-        """
-        self.record = rec
-        # start annotation is annotation that should be on the near end of the final outputted control sequence.
-        # end is the same but for the far end.
-        self.anno = {}
-        # Just as notation; these don't get initialized. If they did, they'd be None, which gets assigned to them later
-        # if nothing is found.
-        #self.anno["start"]
-        #self.anno["end"]
+    # return an empty sequence if one of the bounds is missing.
+    if end_annot is None or start_annot is None:
+        return ""
 
-    def __len__(self):
-        return len(self.record)
+    rev_comp = False
+    inner = False
 
-    def check_flip(self) -> bool:
-        """
-        checks if the features has been flipped from the expected orientation (5'-B---A-3' instead of 5'-A---B-3').
-        returns T/F
-        """
-        return (self.anno["end"] is not None
-                and self.anno["start"] is not None
-                and self.anno["end"].location.start < self.anno["start"].location.start)
+    # check if it's reversed and/or flipped
+    if check_rev_comp(end_annot):
+        rev_comp = True
+        inner = True
+        # we have to set inner flag to be "flipped" because of the orientation of the sequence.
 
-    def check_revcomp(self) -> bool:
-        """
-        Checks if the end annnotation has been flipped.
-        Returns T/F
-        """
-        # operating under the assumption that the 12S rRNA is on the negative strand
-        # so if it isn't, we assume that we're looking at the reverse complement of what we're normally looking at
-        return (self.anno["end"] is not None
-                and self.anno["end"].location.strand == 1)
+        # let me essplane:
 
-    def set_side(self, annot, side) -> None:
-        """Sets the boundary annotation for a given side"""
-        self.anno[side] = annot
+        # Normal: 5'~tRNA------->12S>~~3'          ║ Reverse complement: 3'~~<12S<-------tRNA~5'
+        # the tRNA is before the rRNA, so we take  ║ The rRNA is before the tRNA, but we still have
+        # from the start, until the tRNA, then     ║ to take the outer. Because the rotation checker
+        # from the rRNA to the end.                ║ only checks for the position of the rRNA vs tRNA,
+        #                                          ║ it'll see the 12S before and decide that we need
+        #                                          ║ to take the centre, which is false. So we pre-set
+        #                                          ║ it to true to trick it into being correct by
+        #                                          ║ toggling itself back to getting the edges.
+        #══════════════════════════════════════════╬══════════════════════════════════════════════════
+        # Rotated: 5'--->12S>~~~tRNA----3'         ║ Rotated RevComp: 3'----tRNA~~~<12S<---5'
+        # The 12S rRNA is before the tRNA, so we   ║ We want the centre, but since the 12S is after
+        # take the inner sequence, not the edges.  ║ the tRNA, the rotation checker will ignore it as
+        # The rotation checker will see the 12S    ║ correct, and take the edges unless we set it to
+        # before the tRNA and switch to taking the ║ true (which we did).
+        # middle instead of the edges.             ║
 
-    def parse_seq(self, rev_comp: bool, inner: bool) -> str:
-        """
-        Clips the relevant sequence data from sequences.
+        # Is this a kludgy hack born out of tech debt? Probably. Still works, tho
+    if check_flip(start_annot, end_annot):
+        inner = not inner # take from between instead of the tails
+        # it has to be a toggle instead of an assignment because of the weirdnesss with rotated reverse complements.
 
-        There are four possible states for the sequence:
-        - Normal orientation
-        - reverse complement
-        - annotations in reverse order (sequence has been rotated)
-        - reverse complement rotated
+    # if we're looking at the reverse complement, we need to flip the boundaries.
+    # defaults
+    # The "near" bound is closer to the 5' end
+    near_bound = 0
+    # It's the "far" bound because it's further from the 5' end.
+    far_bound = len(rec)
 
-        In a normal orientation, it gets sequence data from the 1 position, to the
-        start of the "near" annotation, then skips all nucleotides until the end of the
-        "end" annotation. These sequences are then concatenated together.
+    # Set the variables to their correct value, assuming the boundaries were found, otherwise
+    # they just stay as the defaults.
+    if rev_comp:
+        if end_annot is not None: near_bound = end_annot.location.start
+        if start_annot is not None: far_bound = start_annot.location.end
+    else:
+        if start_annot is not None: near_bound = start_annot.location.start
+        if end_annot is not None: far_bound = end_annot.location.end
 
-        In the reverse complement, it still grabs data from the edges, but from 1 to the
-        start of the "far" annotation, and after the end of the "near" annotation. These
-        annotation are only "near" and "far" in reference to the normal orientation. In
-        the reverse complement, they get reversed.
+    ## DEFAULT BEHAVIOUR:
+    # take from the 12S rRNA to the end, then from the beginning to the
+    if not inner:
+        out_seq = rec.seq[far_bound:]+rec.seq[:near_bound]
 
-        In reverse order, it gets from the end of the "far" to the start of the "near"
-        sequence. Again, the annotations are only far/near in reference to the normal
-        orientation of the sequence.
+    ## MODIFIED BEHAVIOUR:
+    #  Take BETWEEN the rRNA and the tRNA.
+    # This is "backwards" because the expected far bound is nearer when this happens.
+    else:
+        out_seq = rec.seq[far_bound:near_bound]
 
-        In the reverse complement reverse order, it gets from the end of the "start" to
-        the start of the "end." In this case, it's double reversed so the annotation names
-        actually bodge their way to being correct.
+    # if it's supposed to get reversed, reverse it.
+    if rev_comp:
+        out_seq = out_seq.reverse_complement()
 
-        Returns a sequence object.
-        """
+    return str(out_seq)
 
-        # if we're looking at the reverse complement, we need to flip the boundaries.
-        # defaults
-        # The "near" bound is closer to the 5' end
-        near_bound = 0
-        # It's the "far" bound because it's further from the 5' end.
-        far_bound = len(self)
-
-        # Set the variables to their correct value, assuming the boundaries were found, otherwise
-        # they just stay as the defaults.
-        if rev_comp:
-            if self.anno["end"] is not None: near_bound = self.anno["end"].location.start
-            if self.anno["start"] is not None: far_bound = self.anno["start"].location.end
-        else:
-            if self.anno["start"] is not None: near_bound = self.anno["start"].location.start
-            if self.anno["end"] is not None: far_bound = self.anno["end"].location.end
-
-        ## DEFAULT BEHAVIOUR:
-        # take from the 12S rRNA to the end, then from the beginning to the
-        if not inner:
-            return self.record.seq[far_bound:]+self.record.seq[:near_bound]
-
-        ## MODIFIED BEHAVIOUR:
-        #  Take BETWEEN the rRNA and the tRNA.
-        # This is "backwards" because the expected far bound is nearer when this happens.
-        else:
-            return self.record.seq[far_bound:near_bound]
 
 def circular_distance(a: int, b: int, C: int) -> int:
     """
@@ -162,14 +179,16 @@ def circular_distance(a: int, b: int, C: int) -> int:
 
     >>> circular_distance(2,5,10)
     3
-
     >>> circular_distance(12,3,15)
     6
+    >>> # It even works with numbers >C or <0
+    ... circular_distance(-20, 37, 10)
+    3
     """
     arc = abs(a - b) % C # the distance between these in one direction -- not necessarily the shortest distance
     return min(C - arc, arc) # the arc and the complement of the arc, one of which will be shorter than the other.
 
-def check_anchor(anchor_loc: int, seq_len: int , loc1: int , loc2: int) -> bool:
+def check_anchor(anchor_loc: int, seq_len: int, loc1: int, loc2: int) -> bool:
     """
     Given a location for the anchor, the total length of the sequence, and two annotations,
     Checks if the second annotation would be closer to the anchor point.
@@ -179,9 +198,6 @@ def check_anchor(anchor_loc: int, seq_len: int , loc1: int , loc2: int) -> bool:
     True
     >>> check_anchor(5,20,2,9)
     False
-    >>> #It even works with numbers >C or <0
-    ... circular_distance(-20, 37, 10)
-    3
     """
     # here's how this one goes:
     # We get the circular distance of two points from the same anchor
@@ -189,51 +205,24 @@ def check_anchor(anchor_loc: int, seq_len: int , loc1: int , loc2: int) -> bool:
     return (circular_distance(loc1, anchor_loc, seq_len)
             > circular_distance(loc2, anchor_loc, seq_len))
 
-def find_bound(seq_len: int, all_annots, bound_tuple: Tuple[str], anchor: int=None):
+def find_bound(seq_len: int, all_annots, anchor: int):
     """
     Takes a sequence length, a list of annotations, a tuple containing all the bounds we're looking for, and the anchor location
     for that feature.
-    If no anchor is given, it finds the first annotation that matches the highest priority boundary.
-    If an anchor is given, it finds the annotation closest to the anchor.
+    Finds the first annotation that matches the highest priority boundary.
     Returns an annotation or None.
     """
     best_fit = None
-    for bound in bound_tuple:
-         # through every feature in every record
-        for annot in all_annots:
-            # if it's the correct bound
-            if annot.qualifiers["product"][0] == bound:
-                # if there is a best fit and it is closer than the new one, skip this annotation.
-                # if there isn't a best fit, or the new annotation is closer to the anchor, reassign best_fit
-                # This won't stop anchorless annotations from working: anchorless annotations escape the loops
-                # shortly after finding one that fits.
-                if (best_fit is not None
-                        and check_anchor(anchor, seq_len, annot.location.start, best_fit.location.start)):
-                    continue
-                best_fit = annot
-                if anchor == None:
-                    return best_fit
-                    # stop searching once we find a match for this -- we prioritize the start of the list when there's no anchor
-                    # Also we have no way of knowing if it's correct when we have no anchor, so we just stop everything.
-                    # It's a shot in the dark anyway, so why not use the shot that takes the least time and energy
-                    # If it's the only one, this'll find it and there won't be any more anyway.
+    for annot in all_annots:
+        # if there is a best fit and it is closer than the new one, skip this annotation.
+        # if there isn't a best fit, or the new annotation is closer to the anchor, reassign best_fit
+        if (best_fit is None
+                or not check_anchor(anchor, seq_len, int(annot.location.start), int(best_fit.location.start))):
+            best_fit = annot
+        if anchor is None:
+            return best_fit
     # if there's an anchor, we have to get to the very end to find the best match. Otherwise, it breaks early, as above.
     return best_fit
-
-def find_annots(product: str, bound_tuple: Tuple[str]) -> bool:
-    """
-    Loops through all the elements of the given tuple, and looks to see if one if the same as the given annotation.
-    Returns T/F
-
-    >>> find_annots("a", ("a","b","c"))
-    True
-    >>> find_annots("c", ("b","d"))
-    False
-    """
-    for a_name in bound_tuple:
-        if product == a_name:
-            return True
-    return False
 
 def find_anchor(bound_start_anchor, start_anchor_annots):
     """
@@ -242,8 +231,8 @@ def find_anchor(bound_start_anchor, start_anchor_annots):
     """
     for s_anch in bound_start_anchor:
         for annot in start_anchor_annots:
-            if annot.qualifiers["product"][0] == s_anch:
-                return annot.location.start # Bonus: this breaks both loops
+            if annot.qualifiers["product"][0] == s_anch[0]:
+                return annot.location.start if s_anch[1] == "start" else annot.location.end # Bonus: this breaks both loops
     return None # otherwise, return the default (which is -1)
 
 #  Dict[str, SeqFeature] ->  -> list[SeqFeature]
@@ -255,10 +244,7 @@ def main():
     args = get_params()
 
     # make a new file, either forcing overwrite of the old file or not, depending on the setting.
-    with open(args.output, "w" if args.force else "x") as out_file:
-        pass
-
-    with open(args.input, "r") as seq_file:
+    with open(args.input, "r") as seq_file, open(args.output, "w" if args.force else "x") as out_file:
 
         # highest to lowest priority, e.x. 12S is preferred to 12S (partial)
         bound_start = ("mtRNA-Ile(gat)", "mtRNA-Ile(aat)")
@@ -268,14 +254,10 @@ def main():
         # So we use a protein coding gene, preferably large so it's harder to translocate, but generally just the closest.
         # Then we find the closest tRNA to that gene and use that.
         # IF NO ANCHOR IS GIVEN OR FOUND, it just uses the first occurence of the highest priority bound marker
-        bound_start_anchor = ("NADH-ubiquinone oxidoreductase chain 2",)
+        bound_start_anchor = (("NADH-ubiquinone oxidoreductase chain 2","start"),("12S ribosomal RNA","end"), ("12S ribosomal RNA (partial)","end"))
 
-        # this consumes the entire file stream, so we'll have to re-open it later.
         # through every sequence record in the gff
         for rec in GFF.parse(seq_file):
-
-            seq = SeqInfo(rec)
-
             # Make a dictionary called prod_features containing SeqFeature objects where the key is the product name
             # and the value is a list of features that contain the same product tags.
             prod_features: Dict[str, SeqFeature] = {f.qualifiers['product'][0]: f for f in rec.features if 'product' in f.qualifiers}
@@ -284,68 +266,18 @@ def main():
             start_annots = get_features(prod_features, bound_start)
             end_annots = get_features(prod_features, bound_end)
 
-            """
-            # theses are lists of compiled annotations so we don't have to loop through the entire list multiple times
-            start_anchor_annots = []
-            start_annots = []
-            end_annots = []
-            # go through everything to find the anchors
-            for annot in rec.features:
-                # Find the annotations that correspond to elements of the tuples, then put them in the annots list for each.
-                if find_annots(annot.qualifiers["product"][0], bound_start_anchor): start_anchor_annots.append(annot)
-                if find_annots(annot.qualifiers["product"][0], bound_start): start_annots.append(annot)
-                if find_annots(annot.qualifiers["product"][0], bound_end): end_annots.append(annot)
-            """
-
             s_anchor_loc = find_anchor(bound_start_anchor, start_anchor_annots)
 
             # through every possible start/end bound
-            seq.set_side(find_bound(len(seq), start_annots, bound_start, s_anchor_loc), "start")
-            seq.set_side(find_bound(len(seq), end_annots, bound_end), "end")
-
-            rev_comp = False
-            inner = False
-
-            # check if it's reversed and/or flipped
-            if seq.check_revcomp():
-                rev_comp = True
-                inner = True
-                # we have to set inner flag to be "flipped" because of the orientation of the sequence.
-
-                # let me essplane:
-
-                # Normal: 5'~tRNA------->12S>~~3'          ║ Reverse complement: 3'~~<12S<-------tRNA~5'
-                # the tRNA is before the rRNA, so we take  ║ The rRNA is before the tRNA, but we still have
-                # from the start, until the tRNA, then     ║ to take the outer. Because the rotation checker
-                # from the rRNA to the end.                ║ only checks for the position of the rRNA vs tRNA,
-                #                                          ║ it'll see the 12S before and decide that we need
-                #                                          ║ to take the centre, which is false. So we pre-set
-                #                                          ║ it to true to trick it into being correct by
-                #                                          ║ toggling itself back to getting the edges.
-                #══════════════════════════════════════════╬══════════════════════════════════════════════════
-                # Rotated: 5'--->12S>~~~tRNA----3'         ║ Rotated RevComp: 3'----tRNA~~~<12S<---5'
-                # The 12S rRNA is before the tRNA, so we   ║ We want the centre, but since the 12S is after
-                # take the inner sequence, not the edges.  ║ the tRNA, the rotation checker will ignore it as
-                # The rotation checker will see the 12S    ║ correct, and take the edges unless we set it to
-                # before the tRNA and switch to taking the ║ true (which we did).
-                # middle instead of the edges.             ║
-
-                # Is this a kludgy hack born out of tech debt? Probably. Still works, tho
-            if seq.check_flip():
-                inner = not inner # take from between instead of the tails
-                # it has to be a toggle instead of an assignment because of the weirdnesss with rotated reverse complements.
+            start_annot = find_bound(len(rec), start_annots, s_anchor_loc)
+            end_annot = end_annots[0] if len(end_annots) > 0 else None
 
             # get the sequence
-            out_seq = seq.parse_seq(rev_comp, inner)
-            # if it's supposed to get reversed, reverse it.
-            if rev_comp:
-                out_seq = out_seq.reverse_complement()
-
+            out_seq = parse_seq(rec, start_annot, end_annot)
 
             # print it out to the file
-            with open(args.output, "a") as out_file:
-                out_file.write(">"+rec.id+"_cont_reg\n")
-                out_file.write(str(out_seq)+"\n")
+            out_file.write(">"+rec.id+"_cont_reg\n")
+            out_file.write(out_seq+"\n")
 
 if __name__ == '__main__':
     main()

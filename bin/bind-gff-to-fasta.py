@@ -31,9 +31,6 @@ def main():
 
     # make a new file, either forcing overwrite of the old file or not, depending on the setting.
     with open(args.output, "w" if args.force else "x") as out_file:
-        pass
-
-    with open(args.output, "a") as out_file:
         with open(args.gff) as gff_file:
             for i in gff_file:
                 out_file.write(i)
