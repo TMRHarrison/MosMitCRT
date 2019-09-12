@@ -47,72 +47,74 @@ class Mot: #motif
     """
     Stores motif data. name, altname if it has one, and the length of the motif
     """
-    def __init__(self, n, a, l):
+    def __init__(self, n: str, a: str, l: int):
         self.name = n
         self.altn = a
         self.length = l
+
+def get_xml_data(xml_path):
+    """
+    Gets the XML data from the file and closes it nicely, returning the output.
+    """
+    with open(xml_path) as mast_file:
+        return BeautifulSoup(mast_file, 'lxml')
+
+def get_seq_info(xml_path: str):
+    """
+
+    """
+    seqs = [] # sequences
+    mot = []  # motifs
+
+    # crack the input file open and look at it 👀
+    xml = get_xml_data()
+
+    # grab attributes from all the motif tags
+    for mot_tag in xml.find_all("motif"):
+        #if there is an alt name, add it
+        alt_name = mot_tag.attrs.get("alt", "")
+
+        # make a new object in the table
+        mot.append(Mot(mot_tag["id"], alt_name, int(mot_tag["length"])))
+
+    # grab all the sequence tags and get their names and lengths.
+    for seq_tag in xml.find_all("sequence"):
+        seq = SeqRecord("A"*(int(seq_tag["length"])),seq_tag["name"])
+        seqs.append(seq)
+
+        # then, go through every hit under each sequence to find the actual motif locations.
+        for hit_tag in seq_tag.find_all("hit"):
+            cur_motif = mot[int(hit_tag["idx"])]
+
+            # from this, we construct the annotations.
+            qualifiers = {
+                "source": "MEME Suite",
+                "Note": "p-value:"+hit_tag["pvalue"],
+                # If the alt name is empty, just the name. Otherwise, altn+" "+name
+                "Name": " ".join(filter(None, [cur_motif.altn, cur_motif.name]))
+            }
+
+            # build the sequence feature object
+            seq.features.append(
+                SeqFeature(
+                    FeatureLocation(
+                        int(hit_tag["pos"])-1, # MAST indexes at 1, biopython indexes at 0
+                        int(hit_tag["pos"])+cur_motif.length-1
+                    ),
+                    type="nucleotide_motif",
+                    strand=-1 if hit_tag["rc"] == "y" else 1,
+                    qualifiers=qualifiers
+                )
+            )
+    return seqs
 
 def main():
     """Main CLI entry point for mast-annotate.py"""
     args = get_params()
 
-    seqs = [] # sequences
-    mot = []  # motifs
-
-    # MAST uses a "reverse complement" tag, so no = + strand, yes = - strand
-
-    # if we're overwriting, it'll get handled later. If not, and the file already exists, stop before you
-    # waste your time analyzing the file.
-    if not args.force:
-        with open(args.output, "x") as out_file:
-            pass
-
-    # crack the input file open and look at it 👀
-    with open(args.input) as mast_file:
-
-        xml = BeautifulSoup(mast_file, 'lxml')
-
-        # grab attributes from all the motif tags
-        for mot_tag in xml.find_all("motif"):
-            #if there is an alt name, add it
-            alt_name = mot_tag.attrs.get("alt", "")
-
-            # make a new object in the table
-            mot.append(Mot(mot_tag["id"], alt_name, int(mot_tag["length"])))
-
-        # grab all the sequence tags and get their names and lengths.
-        for seq_tag in xml.find_all("sequence"):
-            seq = SeqRecord("A"*(int(seq_tag["length"])),seq_tag["name"])
-            seqs.append(seq)
-
-            # then, go through every hit under each sequence to find the actual motif locations.
-            for hit_tag in seq_tag.find_all("hit"):
-                cur_motif = mot[int(hit_tag["idx"])]
-
-                # from this, we construct the annotations.
-                qualifiers = {
-                    "source": "MEME Suite",
-                    "Note": "p-value:"+hit_tag["pvalue"],
-                    # If the alt name is empty, just the name. Otherwise, altn+" "+name
-                    "Name": " ".join(filter(None, [cur_motif.altn, cur_motif.name]))
-                }
-
-                # build the sequence feature object
-                seq.features.append(
-                    SeqFeature(
-                        FeatureLocation(
-                            int(hit_tag["pos"])-1, # MAST indexes at 1, biopython indexes at 0
-                            int(hit_tag["pos"])+cur_motif.length-1
-                        ),
-                        type="nucleotide_motif",
-                        strand=-1 if hit_tag["rc"] == "y" else 1,
-                        qualifiers=qualifiers
-                    )
-                )
-
     # open the outfile and start writing the sequence list to the file
-    with open(args.output, "w") as out_file:
-        GFF.write(seqs, out_file)
+    with open(args.output, "w" if args.force else "x") as out_file:
+        GFF.write(get_seq_info(args.input), out_file)
 
 if __name__ == '__main__':
     main()

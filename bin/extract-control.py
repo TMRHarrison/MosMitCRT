@@ -276,8 +276,7 @@ def main():
             out_seq = parse_seq(rec, start_annot, end_annot)
 
             # print it out to the file
-            out_file.write(">"+rec.id+"_cont_reg\n")
-            out_file.write(out_seq+"\n")
+            out_file.write(f">{rec.id}_cont_reg\n{control_seq}\n")
 
 if __name__ == '__main__':
     main()
