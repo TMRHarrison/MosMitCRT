@@ -28,8 +28,12 @@ The general process is as follows:
 # command line arguments, GFF parser
 import argparse
 from BCBio import GFF
+
 # Type hinting
-from typing import Dict, Tuple, Iterable
+from typing import TYPE_CHECKING, Dict, Tuple, Iterable, List
+if TYPE_CHECKING:
+    from Bio.SeqFeature import SeqFeature, FeatureLocation
+    from Bio.SeqRecord import SeqRecord
 
 def get_params():
     """Returns the command line arguments."""
@@ -165,7 +169,6 @@ def parse_seq(rec, start_annot, end_annot) -> str:
 
     return str(out_seq)
 
-
 def circular_distance(a: int, b: int, C: int) -> int:
     """
     Finds the shortest distance between two points along the perimeter of a circle.
@@ -192,7 +195,14 @@ def check_anchor(anchor_loc: int, seq_len: int, loc1: int, loc2: int) -> bool:
     """
     Given a location for the anchor, the total length of the sequence, and two annotations,
     Checks if the second annotation would be closer to the anchor point.
-    Returns T/F
+
+    Args:
+        anchor_loc: the location of an anchor point
+        seq_len: the total length of the sequence
+        loc1: the first location to check
+        loc2: the second location to check
+    Return:
+        boolean: true if the first loc is further than the second one
 
     >>> check_anchor(10,20,4,15)
     True
@@ -207,10 +217,14 @@ def check_anchor(anchor_loc: int, seq_len: int, loc1: int, loc2: int) -> bool:
 
 def find_bound(seq_len: int, all_annots, anchor: int):
     """
-    Takes a sequence length, a list of annotations, a tuple containing all the bounds we're looking for, and the anchor location
-    for that feature.
     Finds the first annotation that matches the highest priority boundary.
-    Returns an annotation or None.
+
+    Args:
+        seq_leb: a sequence length
+        all_annots: a list of annotations
+        anchor: the anchor location
+    Return:
+        an annotation or None.
     """
     best_fit = None
     for annot in all_annots:
@@ -222,12 +236,18 @@ def find_bound(seq_len: int, all_annots, anchor: int):
         if anchor is None:
             return best_fit
     # if there's an anchor, we have to get to the very end to find the best match. Otherwise, it breaks early, as above.
+    # if there are no matches, it just returns None.
     return best_fit
 
-def find_anchor(bound_start_anchor, start_anchor_annots):
+def find_anchor(bound_start_anchor: Tuple[Tuple[str, str]], start_anchor_annots):
     """
     Finds the first available anchor gene and returns its position
-    returns the start position of the anchor or -1 if there's no anchor
+
+    Args:
+        bound_start_anchor: a tuple containing tuples of: (feature name, "start"/"end")
+        start_anchor_annots: a list containing all the possible start anchors (even ones that are low-priority)
+    Return:
+        the start position of the anchor or -1 if there's no anchor
     """
     for s_anch in bound_start_anchor:
         for annot in start_anchor_annots:
@@ -237,7 +257,16 @@ def find_anchor(bound_start_anchor, start_anchor_annots):
 
 #  Dict[str, SeqFeature] ->  -> list[SeqFeature]
 def get_features(product_features, products: Iterable[str]):
-    return [product_features[p] for p in products if p in product_features]
+    """
+    Returns a list of annotations with products matching those in a tuple.
+
+    Args:
+        product_features: a list of annotations with products
+        products: a tuple of acceptable products
+    Return:
+        a list of features with the specified products
+    """
+    return [f for f in product_features if f.qualifiers['product'][0] in products]
 
 def main():
     """Main CLI entry point for extract-control.py"""
@@ -260,7 +289,7 @@ def main():
         for rec in GFF.parse(seq_file):
             # Make a dictionary called prod_features containing SeqFeature objects where the key is the product name
             # and the value is a list of features that contain the same product tags.
-            prod_features: Dict[str, SeqFeature] = {f.qualifiers['product'][0]: f for f in rec.features if 'product' in f.qualifiers}
+            prod_features: Dict[str, SeqFeature] = [f for f in rec.features if 'product' in f.qualifiers]
 
             start_anchor_annots = get_features(prod_features, bound_start_anchor)
             start_annots = get_features(prod_features, bound_start)
