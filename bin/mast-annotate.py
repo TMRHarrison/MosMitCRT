@@ -43,15 +43,6 @@ def get_params():
 
     return parser.parse_args()
 
-class Mot: #motif
-    """
-    Stores motif data. name, altname if it has one, and the length of the motif
-    """
-    def __init__(self, n: str, a: str, l: int):
-        self.name = n
-        self.altn = a
-        self.length = l
-
 def get_xml_data(xml_path):
     """
     Gets the XML data from the file and closes it nicely, returning the output.
@@ -71,11 +62,8 @@ def get_seq_info(xml_path: str):
 
     # grab attributes from all the motif tags
     for mot_tag in xml.find_all("motif"):
-        #if there is an alt name, add it
-        alt_name = mot_tag.attrs.get("alt", "")
-
         # make a new object in the table
-        mot.append(Mot(mot_tag["id"], alt_name, int(mot_tag["length"])))
+        mot.append(mot_tag)
 
     # grab all the sequence tags and get their names and lengths.
     for seq_tag in xml.find_all("sequence"):
@@ -91,7 +79,7 @@ def get_seq_info(xml_path: str):
                 "source": "MEME Suite",
                 "Note": "p-value:"+hit_tag["pvalue"],
                 # If the alt name is empty, just the name. Otherwise, altn+" "+name
-                "Name": " ".join(filter(None, [cur_motif.altn, cur_motif.name]))
+                "Name": " ".join(filter(None, [cur_motif.attrs.get("alt", ""), cur_motif["id"]]))
             }
 
             # build the sequence feature object
@@ -99,7 +87,7 @@ def get_seq_info(xml_path: str):
                 SeqFeature(
                     FeatureLocation(
                         int(hit_tag["pos"])-1, # MAST indexes at 1, biopython indexes at 0
-                        int(hit_tag["pos"])+cur_motif.length-1
+                        int(hit_tag["pos"])+int(cur_motif["length"])-1
                     ),
                     type="nucleotide_motif",
                     strand=-1 if hit_tag["rc"] == "y" else 1,

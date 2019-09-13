@@ -8,12 +8,11 @@ To run properly, this pipeline needs:
  * [Python 3](https://www.python.org/downloads/)
  * [Prokka](https://github.com/tseemann/prokka)
  * [MAST](http://meme-suite.org/doc/mast.html) (from the [MEME Suite](http://meme-suite.org/index.html))
+ * [Beautiful Soup](https://www.crummy.com/software/BeautifulSoup/)
+ * [lxml](https://lxml.de)
+ * [bcbiogff](https://github.com/chapmanb/bcbb/tree/master/gff)
 
-Prokka and MEME Suite can be easily installed via Conda:
-```
-conda install -c bioconda prokka
-conda install -c bioconda meme
-```
+Recommended versions of theese dependencies are in the ```environment.yml``` file, for use with [Conda](https://docs.conda.io/en/latest/) virtual environments.
 
 ### Options:
 | Option    | Use                                            | Default                                        |
@@ -44,11 +43,25 @@ Normal usage:
 ```
 nextflow run MosMitCRT --in "MosMitCRT/testData/mos*.fasta" --motif MosMitCRT/testData/motifs.txt
 ```
+This command can also be run by using ```-profile test```.
 
 No motif search, check reverses and rotated sequence handling:
 ```
 nextflow run MosMitCRT --in MosMitCRT/testData/testv3.fasta --nomotif
 ```
+This command can be run by using ```-profile test2```
 
-### To do:
-Prokka doesn't analyze things as if they're circular, so if the sequence's 1 position is the middle of the 12S rRNA or the Ileu-tRNA, it won't recognise some or all of the feature. This could potentially be mitigated by running multiple
+### Versioning:
+
+versioning: X.Y.Z
+X: Major release version
+  - Anything that adds an analysis step.
+  - Things like adding a BLAST search, adding options for genome annotation programs, etc.
+  - Changes the core functionality of the program.
+Y: Minor release version
+  - Changing the interface or adding smaller features, things that don't affect the core functionality of the program.
+  - Giving a command line option to add Prokka options, changing output folder strucutre, etc.
+  - Optionally different, but produces the same type of output and accepts the same inputs.
+Z: Bugfix version
+  - For when I make mistakes and have to push another version to change something that otherwise breaks the program.
+  - Also used for back-end improvements that don't actually affect the usage or output.
