@@ -30,6 +30,11 @@ from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from Bio.SeqFeature import SeqFeature, FeatureLocation
 
+from typing import List, TYPE_CHECKING
+# This is otherwise unnecessary, but has to be explicitly imported for type checking
+if TYPE_CHECKING:
+    from bs4.element import Tag
+
 
 def get_params():
     """Gets command line arguments. Returns them."""
@@ -43,36 +48,47 @@ def get_params():
 
     return parser.parse_args()
 
-def get_xml_data(xml_path):
+def get_xml_data(xml_path: str) -> BeautifulSoup:
     """
-    Gets the XML data from the file and closes it nicely, returning the output.
+    Gets the XML data from the file and closes it nicely, returning the output
+
+    Args:
+        xml_path: a string pointing to the location of an xml object. Note: cannot be HTML becase of the 'lxml' option
+    Returns:
+        BeautifulSoup object with the xml data
     """
     with open(xml_path) as mast_file:
         return BeautifulSoup(mast_file, 'lxml')
 
-def get_seq_info(xml_path: str):
+def get_seq_info(xml_path: str) -> List[SeqRecord]:
     """
+    Get the information out of a mast.xml file and return a list of annotated sequence objects
 
+    Args:
+        xml_path: a string noting the location of the file path
+    Returns:
+        a list of BioPython sequence records
     """
-    seqs = [] # sequences
-    mot = []  # motifs
+    seqs: List[SeqRecord] = [] # sequences
+    mot: List[Tag] = []  # motifs
 
     # crack the input file open and look at it 👀
-    xml = get_xml_data(xml_path)
+
+    xml: BeautifulSoup = get_xml_data(xml_path)
 
     # grab attributes from all the motif tags
-    for mot_tag in xml.find_all("motif"):
+    for mot_tag in xml.find_all("motif"): # Can't annotate loop variable, these are Tag
         # make a new object in the table
         mot.append(mot_tag)
 
     # grab all the sequence tags and get their names and lengths.
-    for seq_tag in xml.find_all("sequence"):
+    for seq_tag in xml.find_all("sequence"): # Can't annotate loop variable, these are Tag
         seq = SeqRecord("A"*(int(seq_tag["length"])),seq_tag["name"])
         seqs.append(seq)
 
         # then, go through every hit under each sequence to find the actual motif locations.
         for hit_tag in seq_tag.find_all("hit"):
-            cur_motif = mot[int(hit_tag["idx"])]
+            cur_motif: Tag = mot[int(hit_tag["idx"])]
 
             # from this, we construct the annotations.
             qualifiers = {
@@ -90,7 +106,7 @@ def get_seq_info(xml_path: str):
                         int(hit_tag["pos"])+int(cur_motif["length"])-1
                     ),
                     type="nucleotide_motif",
-                    strand=-1 if hit_tag["rc"] == "y" else 1,
+                    strand=(-1 if hit_tag["rc"] == "y" else 1),
                     qualifiers=qualifiers
                 )
             )

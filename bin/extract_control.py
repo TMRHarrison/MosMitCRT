@@ -30,7 +30,7 @@ import argparse
 from BCBio import GFF
 
 # Type hinting
-from typing import TYPE_CHECKING, Dict, Tuple, Iterable, List
+from typing import TYPE_CHECKING, Dict, Tuple, Iterable, List, Optional
 if TYPE_CHECKING:
     from Bio.SeqFeature import SeqFeature, FeatureLocation
     from Bio.SeqRecord import SeqRecord
@@ -54,23 +54,32 @@ def get_params():
 def check_flip(start_annot, end_annot) -> bool:
     """
     checks if the features have been flipped from the expected orientation (5'-B---A-3' instead of 5'-A---B-3').
-    returns T/F
+
+    Args:
+        start_annot: A BioPython sequence feature
+        end_annot: Another sequence feature
+    Returns:
+        T/F
     """
     return (end_annot is not None
             and start_annot is not None
             and end_annot.location.start < start_annot.location.start)
 
-def check_rev_comp(end_annot) -> bool:
+def check_rev_comp(annot, bound_end_strand) -> bool:
     """
     Checks if the end annnotation has been flipped.
-    Returns T/F
+
+    Args:
+        annot: a BioPython sequence feature
+    Returns:
+        T/F
     """
     # operating under the assumption that the 12S rRNA is on the negative strand
     # so if it isn't, we assume that we're looking at the reverse complement of what we're normally looking at
-    return (end_annot is not None
-            and end_annot.location.strand == 1)
+    return (annot is not None
+            and annot.location.strand != bound_end_strand)
 
-def parse_seq(rec, start_annot, end_annot) -> str:
+def parse_seq(rec, start_annot, end_annot, bound_end_strand) -> str:
     """
     Clips the relevant sequence data from sequences.
 
@@ -97,7 +106,12 @@ def parse_seq(rec, start_annot, end_annot) -> str:
     the start of the "end." In this case, it's double reversed so the annotation names
     actually bodge their way to being correct.
 
-    Returns a sequence object.
+    Args:
+        rec: a BioPython sequence record
+        start_annot: A BioPython sequence record
+        end_annot: Another sequence record
+    Returns:
+        The sequence data between the two annotations as a string.
     """
 
     # return an empty sequence if one of the bounds is missing.
@@ -108,7 +122,7 @@ def parse_seq(rec, start_annot, end_annot) -> str:
     inner = False
 
     # check if it's reversed and/or flipped
-    if check_rev_comp(end_annot):
+    if check_rev_comp(end_annot, bound_end_strand):
         rev_comp = True
         inner = True
         # we have to set inner flag to be "flipped" because of the orientation of the sequence.
@@ -177,8 +191,8 @@ def circular_distance(a: int, b: int, C: int) -> int:
         a: a point on a circle's circumference.
         b: another point on the cicrle.
         C: the total circumference of the circle.
-    Returns:
-        a the shortest good.
+    Return:
+        The shortest distance along the circumference of the circle between the two points
 
     >>> circular_distance(2,5,10)
     3
@@ -221,10 +235,10 @@ def find_bound(seq_len: int, all_annots, anchor: int):
 
     Args:
         seq_leb: a sequence length
-        all_annots: a list of annotations
+        all_annots: a list of BioPython sequence features
         anchor: the anchor location
     Return:
-        an annotation or None.
+        a BioPython sequence feature or None.
     """
     best_fit = None
     for annot in all_annots:
@@ -239,7 +253,7 @@ def find_bound(seq_len: int, all_annots, anchor: int):
     # if there are no matches, it just returns None.
     return best_fit
 
-def find_anchor(bound_start_anchor: Tuple[Tuple[str, str]], start_anchor_annots):
+def find_anchor(bound_start_anchor: List[Tuple[str, str]], start_anchor_annots):
     """
     Finds the first available anchor gene and returns its position
 
@@ -252,7 +266,15 @@ def find_anchor(bound_start_anchor: Tuple[Tuple[str, str]], start_anchor_annots)
     for s_anch in bound_start_anchor:
         for annot in start_anchor_annots:
             if annot.qualifiers["product"][0] == s_anch[0]:
-                return annot.location.start if s_anch[1] == "start" else annot.location.end # Bonus: this breaks both loops
+                anch_pos = None
+                if ((s_anch[1] == "start" and annot.location.strand == 1)
+                        or (s_anch[1] == "end" and annot.location.strand == -1)):
+                    anch_pos = annot.location.start
+                elif ((s_anch[1] == "start" and annot.location.strand == -1)
+                        or (s_anch[1] == "end" and annot.location.strand == 1)):
+                    anch_pos = annot.location.end
+
+                return anch_pos # Bonus: this breaks both loops
     return None # otherwise, return the default (which is -1)
 
 #  Dict[str, SeqFeature] ->  -> list[SeqFeature]
@@ -261,8 +283,8 @@ def get_features(product_features, products: Iterable[str]):
     Returns a list of annotations with products matching those in a tuple.
 
     Args:
-        product_features: a list of annotations with products
-        products: a tuple of acceptable products
+        product_features: a list of sequence features with products
+        products: a tuple of acceptable product strings
     Return:
         a list of features with the specified products
     """
@@ -276,22 +298,24 @@ def main():
     with open(args.input, "r") as seq_file, open(args.output, "w" if args.force else "x") as out_file:
 
         # highest to lowest priority, e.x. 12S is preferred to 12S (partial)
-        bound_start = ("mtRNA-Ile(gat)", "mtRNA-Ile(aat)")
-        bound_end = ("12S ribosomal RNA", "12S ribosomal RNA (partial)")
+        bound_start = ["mtRNA-Ile(gat)", "mtRNA-Ile(aat)"]
+        bound_end = ["12S ribosomal RNA", "12S ribosomal RNA (partial)"]
+        bound_end_strand = -1 # 1 positive, -1 negative strand. This is used to check for the reverse complement.
         # anchors are basically only for tRNAs as boundaries because tRNAs are easy to copy and move,
         # and are sometimes just totally mis-annotated when done automatically.
         # So we use a protein coding gene, preferably large so it's harder to translocate, but generally just the closest.
         # Then we find the closest tRNA to that gene and use that.
         # IF NO ANCHOR IS GIVEN OR FOUND, it just uses the first occurence of the highest priority bound marker
-        bound_start_anchor = (("NADH-ubiquinone oxidoreductase chain 2","start"),("12S ribosomal RNA","end"), ("12S ribosomal RNA (partial)","end"))
-
+        # start/end are relative to the orientation on the stand. The start is the beginnig of the gene, not necessarily the bfirst numbered nt
+        bound_start_anchor = [("NADH-ubiquinone oxidoreductase chain 2","start"),("12S ribosomal RNA","start"), ("12S ribosomal RNA (partial)","start")]
+#nadh2start +
         # through every sequence record in the gff
         for rec in GFF.parse(seq_file):
             # Make a dictionary called prod_features containing SeqFeature objects where the key is the product name
             # and the value is a list of features that contain the same product tags.
             prod_features: Dict[str, SeqFeature] = [f for f in rec.features if 'product' in f.qualifiers]
 
-            start_anchor_annots = get_features(prod_features, bound_start_anchor)
+            start_anchor_annots = [f for f in prod_features if f.qualifiers['product'][0] in bound_start_anchor[0]]
             start_annots = get_features(prod_features, bound_start)
             end_annots = get_features(prod_features, bound_end)
 
@@ -302,7 +326,7 @@ def main():
             end_annot = end_annots[0] if len(end_annots) > 0 else None
 
             # get the sequence
-            out_seq = parse_seq(rec, start_annot, end_annot)
+            out_seq = parse_seq(rec, start_annot, end_annot, bound_end_strand)
 
             # print it out to the file
             out_file.write(f">{rec.id}_cont_reg\n{out_seq}\n")
