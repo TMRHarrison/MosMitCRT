@@ -38,3 +38,4 @@ env:
 script:
   # Run the pipeline with the test profile
   - nextflow run ${TRAVIS_BUILD_DIR} -profile test
+  - nextflow run ${TRAVIS_BUILD_DIR} -profile test2
