@@ -8,20 +8,19 @@ To run properly, this pipeline needs:
  * [Python 3](https://www.python.org/downloads/)
  * [Prokka](https://github.com/tseemann/prokka)
  * [MAST](http://meme-suite.org/doc/mast.html) (from the [MEME Suite](http://meme-suite.org/index.html))
+ * [Beautiful Soup](https://www.crummy.com/software/BeautifulSoup/)
+ * [lxml](https://lxml.de)
+ * [bcbiogff](https://github.com/chapmanb/bcbb/tree/master/gff)
 
-Prokka and MEME Suite can be easily installed via Conda:
-```
-conda install -c bioconda prokka
-conda install -c bioconda meme
-```
-
+Recommended versions of theese dependencies are in the ```environment.yml``` file, for use with [Conda](https://docs.conda.io/en/latest/) virtual environments.
 
 ### Options:
-| Option  | Use                                    | Default                   |
-|:--------|:---------------------------------------|:--------------------------|
-| --in    | Specify the input file in fasta format | You must specify an input |
-| --out   | Specify the ouput folder name          | pipe_out                  |
-| --motif | Specify the motif file to use          | ./data/motifs.txt         |
+| Option    | Use                                            | Default                                        |
+|:----------|:-----------------------------------------------|:-----------------------------------------------|
+| --in      | Specify the input file(s) in fasta format      | You must specify an input                      |
+| --motif   | Specify the motif file to use                  | You must specify a motif file or use --nomotif |
+| --out     | Specify the ouput folder name                  | pipe_out                                       |
+| --nomotif | Override --motif and skip searching for motifs | Searches for motifs from the --motif file      |
 
 ### Output files:
 * (named output)
@@ -30,13 +29,39 @@ conda install -c bioconda meme
 	* control-sequences
 		* individual
 			* Individual fasta files for each extracted control sequence.
-		* all_sequences.fasta contains all the control sequences in one fasta file.
+		* "all_sequences.fasta" contains all the control sequences in one fasta file.
 	* mast
 		* Contains the MAST reports in html, json, and plaintext formats.
+	* "annotations.gff" contains annotations (and only annotations) in GFF3 format for the control sequences.
+	* "annSeq.gff" contains annotations in GFF3 format, with a ##FASTA section containing all sequence data, as well.
 
-### To do:
-It needs it to be laid out such that the ileu-tRNA comes before the 12S-rRNA, there's no error checking for anything, basically. If these features don't occur in the proper order, the output will be huge, so it's pretty easy to tell when this has happened.
+### Test commad
+This pipeline comes with some genomes from NCBI as test material, as well as some motifs to search for.
 
-Currently, if it doesn't find the tRNA for isoleucine, it will grab every base from 0 to the end, and also every base after the 12s rRNA. This means the "control region" will be larger than the entire genome. This isn't a *huge* problem, as it's pretty easy to tell when it's not working properly, but I should still get around to fixing it.
+#### Test commands:
+Normal usage:
+```
+nextflow run MosMitCRT --in "MosMitCRT/testData/mos*.fasta" --motif MosMitCRT/testData/motifs.txt
+```
+This command can also be run by using ```-profile test```.
 
-I think something similar happens if it doesn't find the 12S rRNA, but I forget.
+No motif search, check reverses and rotated sequence handling:
+```
+nextflow run MosMitCRT --in MosMitCRT/testData/testv3.fasta --nomotif
+```
+This command can be run by using ```-profile test2```
+
+### Versioning:
+
+versioning: X.Y.Z
+X: Major release version
+  - Anything that adds an analysis step.
+  - Things like adding a BLAST search, adding options for genome annotation programs, etc.
+  - Changes the core functionality of the program.
+Y: Minor release version
+  - Changing the interface or adding smaller features, things that don't affect the core functionality of the program.
+  - Giving a command line option to add Prokka options, changing output folder strucutre, etc.
+  - Optionally different, but produces the same type of output and accepts the same inputs.
+Z: Bugfix version
+  - For when I make mistakes and have to push another version to change something that otherwise breaks the program.
+  - Also used for back-end improvements that don't actually affect the usage or output.
